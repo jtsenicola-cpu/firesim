@@ -11,6 +11,7 @@ export function buildBuilding(scene) {
   const windows = [];
   const smokeLayers = [];
   const structuralBlocks = [];
+  const floorTrims = [];
   let blockId = 0;
 
   const woodTex = createWoodTextures();
@@ -94,6 +95,7 @@ export function buildBuilding(scene) {
       { x: 1.025, w: 2.05 },
       { x: 3.075, w: 2.05 }
     ];
+    const floorBackPanels = [];
     for (const seg of backSegments) {
       const panel = new THREE.Mesh(new THREE.BoxGeometry(seg.w - 0.03, FLOOR_HEIGHT, 0.16), wallMat);
       panel.position.set(seg.x, baseY + FLOOR_HEIGHT / 2, -2.85);
@@ -108,6 +110,7 @@ export function buildBuilding(scene) {
       };
       panel.userData.structuralBlock = b;
       structuralBlocks.push(b);
+      floorBackPanels.push(b);
     }
 
     const rightSegments = [
@@ -138,9 +141,13 @@ export function buildBuilding(scene) {
     const rightTrim = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.14, 5.7), trimMat);
     rightTrim.position.set(3.95, baseY + 0.07, 0);
     scene.add(backTrim, rightTrim);
+    floorTrims.push([backTrim, rightTrim]);
 
-    // 3. Back Wall Window with Glass Pane (shatters at high heat)
+    // 3. Back Wall Window with Glass Pane (shatters at high heat, falls if back wall breaks)
     const winObj = createWindow(scene, -1.2, baseY + 1.45, -2.76, f);
+    winObj.supportBlock = floorBackPanels[1]; // x = -1.025 panel behind window
+    winObj.fallen = false;
+    winObj.vy = 0;
     windows.push(winObj);
 
     // Descending Ceiling Smoke Layer per floor
@@ -197,15 +204,24 @@ export function buildBuilding(scene) {
     }
   }
 
-  // Roof slab with rafters
+  // Roof slab (supported by top floor walls)
   const roof = new THREE.Mesh(
     new THREE.BoxGeometry(8.35, 0.22, 5.95),
     new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 })
   );
   roof.position.set(0, NUM_FLOORS * FLOOR_HEIGHT + 0.11, 0);
+  roof.castShadow = true;
+  roof.receiveShadow = true;
   scene.add(roof);
+  const roofBlock = {
+    id: blockId++, floor: NUM_FLOORS - 1, isLoadBearing: false, isSlab: true, isRoof: true,
+    width: 8.35, height: 0.22, depth: 5.95,
+    integrity: 1.0, destroyed: false, mesh: roof, color: 0x1e293b
+  };
+  roof.userData.structuralBlock = roofBlock;
+  structuralBlocks.push(roofBlock);
 
-  return { flammables, floorSurfaces, windows, smokeLayers, structuralBlocks };
+  return { flammables, floorSurfaces, windows, smokeLayers, structuralBlocks, floorTrims };
 }
 
 function addStaircase(scene, x, baseY, zStart, height, lowerFloor) {

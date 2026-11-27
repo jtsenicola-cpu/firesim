@@ -160,7 +160,7 @@ const fireLights = [0, 1, 2].map((f) => {
   return pl;
 });
 
-const { flammables, floorSurfaces, windows, smokeLayers, structuralBlocks } = buildBuilding(scene);
+const { flammables, floorSurfaces, windows, smokeLayers, structuralBlocks, floorTrims } = buildBuilding(scene);
 const waterFloors = [0, 1, 2].map((f) => new FloorWaterSystem(scene, f, f * FLOOR_HEIGHT));
 const floorTemps = [22, 22, 22];
 const floorSoot = [0, 0, 0];
@@ -211,8 +211,9 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
   const h = block.height ?? 2.4;
   const d = block.depth ?? 0.2;
 
-  // 1. Leave a jagged broken masonry stump remnant at the base of destroyed walls
-  if (!block.isSlab) {
+  // 1. Leave jagged broken remnants (only stay in place if supported below, otherwise fall as rubble)
+  const floorSupported = block.floor === 0 || getSupportingFloorY(center.x, block.floor * FLOOR_HEIGHT + 0.1, center.z) >= block.floor * FLOOR_HEIGHT - 0.05;
+  if (!block.isSlab && floorSupported) {
     const stumpH = 0.25 + Math.random() * 0.28;
     const stump = new THREE.Mesh(
       new THREE.BoxGeometry(w, stumpH, d),
@@ -225,6 +226,35 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
     stump.userData.noRaycast = true;
     scene.add(stump);
     remnantMeshes.push(stump);
+  } else if (block.isSlab) {
+    // If this slab collapsed, drain any water/smoke floating on it
+    if (!block.isRoof && waterFloors[block.floor]) {
+      waterFloors[block.floor].drain();
+    }
+    if (!block.isRoof && smokeLayers[block.floor]) {
+      smokeLayers[block.floor].mesh.visible = false;
+    }
+    // Only leave perimeter ledges on floor f if floor f's lower walls are still standing
+    const hasWallBelow = structuralBlocks.some((b) => b.isLoadBearing && b.floor === block.floor - 1 && !b.destroyed);
+    if (hasWallBelow) {
+      const ledgeMat = new THREE.MeshStandardMaterial({ color: block.color, roughness: 0.85 });
+      const ledges = [
+        { size: [w * 0.85, h, 0.42], pos: [center.x, center.y, center.z - d / 2 + 0.21], rotZ: (Math.random() - 0.5) * 0.05 },
+        { size: [0.42, h, d * 0.78], pos: [center.x + w / 2 - 0.21, center.y, center.z], rotX: (Math.random() - 0.5) * 0.05 },
+        { size: [0.38, h, d * 0.45], pos: [center.x - w / 2 + 0.19, center.y, center.z - d * 0.22], rotX: 0.06 }
+      ];
+      for (const l of ledges) {
+        const ledge = new THREE.Mesh(new THREE.BoxGeometry(...l.size), ledgeMat);
+        ledge.position.set(...l.pos);
+        if (l.rotZ) ledge.rotation.z = l.rotZ;
+        if (l.rotX) ledge.rotation.x = l.rotX;
+        ledge.castShadow = true;
+        ledge.receiveShadow = true;
+        ledge.userData.noRaycast = true;
+        scene.add(ledge);
+        remnantMeshes.push(ledge);
+      }
+    }
   }
 
   // 2. Spawn persistent volumetric rubble chunks across the full block dimensions
@@ -628,11 +658,15 @@ function stepSimulation(dt, elapsed) {
     }
     if (item.fallen) {
       const supportY = getSupportingFloorY(item.group.position.x, item.group.position.y, item.group.position.z);
-      if (item.group.position.y > supportY + 0.02) {
+      const targetY = item.isHanging ? supportY - 0.78 : supportY + 0.02;
+      if (item.group.position.y > targetY) {
         item.vy -= 9.8 * dt;
-        item.group.position.y = Math.max(supportY + 0.02, item.group.position.y + item.vy * dt);
+        item.group.position.y = Math.max(targetY, item.group.position.y + item.vy * dt);
         item.group.rotation.z += dt * 1.4;
         item.group.rotation.x += dt * 0.9;
+        if (item.boundsCenter) {
+          item.boundsCenter.y = item.group.position.y + (item.isHanging ? 1.2 : 0.4);
+        }
       } else {
         item.vy = 0;
       }
@@ -734,8 +768,28 @@ function stepSimulation(dt, elapsed) {
       floorTemps[f] = Math.max(22, floorTemps[f] - dt * 8);
     }
 
-    // Thermal glass shattering at 360°C + falling glass shards + shatter audio
+    // Thermal glass shattering at 360°C OR wall-support loss detaches window
     const win = windows[f];
+    if (!win.fallen && win.supportBlock && win.supportBlock.destroyed) {
+      win.fallen = true;
+      if (!win.broken) {
+        win.broken = true;
+        win.glass.visible = false;
+        spawnGlassShards(win.group.position, f);
+        audio.playGlassShatter();
+      }
+    }
+    if (win.fallen) {
+      const supportY = getSupportingFloorY(win.group.position.x, win.group.position.y, win.group.position.z);
+      if (win.group.position.y > supportY + 0.12) {
+        win.vy -= 9.8 * dt;
+        win.group.position.y = Math.max(supportY + 0.12, win.group.position.y + win.vy * dt);
+        win.group.rotation.x += dt * 1.8;
+        win.group.rotation.z += dt * 0.9;
+      } else {
+        win.vy = 0;
+      }
+    }
     if (!win.broken && floorTemps[f] > 360) {
       win.broken = true;
       win.glass.visible = false;
@@ -790,6 +844,9 @@ function stepSimulation(dt, elapsed) {
     },
     onFloorCollapse: (f) => {
       audio.playCollapseRumble();
+      for (let cf = f; cf < NUM_FLOORS; cf++) {
+        if (floorTrims[cf]) floorTrims[cf].forEach((t) => { t.visible = false; });
+      }
       for (const item of flammables) {
         if (item.floor >= f) item.fallen = true;
       }
