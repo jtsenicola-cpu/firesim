@@ -194,6 +194,7 @@ function spawnParticle(type, pos, vel, floor, scale = 0.55, intensity = 1.0) {
 // Tool State & Multi-Touch Input
 let tool = 'ignite';
 let isPointerDown = false;
+let hoseHoldTime = 0;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
 const activePointers = new Set();
@@ -239,7 +240,9 @@ function applyToolAtPointer(clientX, clientY, dtScale = 1.0) {
     if (hits.length > 0) {
       const pt = hits[0].point;
       const f = Math.max(0, Math.min(2, Math.floor(pt.y / FLOOR_HEIGHT)));
-      waterFloors[f].addWaterAt(pt.x, pt.z, 0.055 * dtScale);
+      // Progressive hose pressure: quick taps make small puddles, holding ramps up to flood floors
+      const pressureBoost = 1.0 + Math.min(28.0, hoseHoldTime * hoseHoldTime * 1.6);
+      waterFloors[f].addWaterAt(pt.x, pt.z, 0.055 * dtScale * pressureBoost);
 
       // Arcing water hose stream from nozzle toward target point
       const nozzle = camera.position.clone().add(new THREE.Vector3(0.45, -0.55, 0).applyQuaternion(camera.quaternion));
@@ -313,6 +316,7 @@ const clearPointer = (e) => {
   try { renderer.domElement.releasePointerCapture(e.pointerId); } catch {}
   if (activePointers.size === 0) {
     isPointerDown = false;
+    hoseHoldTime = 0;
     controls.enabled = (tool === 'orbit');
   }
 };
@@ -321,6 +325,7 @@ renderer.domElement.addEventListener('pointercancel', clearPointer);
 window.addEventListener('blur', () => {
   activePointers.clear();
   isPointerDown = false;
+  hoseHoldTime = 0;
   controls.enabled = (tool === 'orbit');
 });
 
@@ -383,7 +388,10 @@ function stepSimulation(dt, elapsed) {
 
   // Continuous held-pointer spraying / ignition
   if (isPointerDown && activePointers.size === 1 && tool !== 'orbit') {
+    if (tool === 'water') hoseHoldTime += dt;
     applyToolAtPointer(lastPointerClientX, lastPointerClientY, Math.min(2.0, dt * 60));
+  } else {
+    hoseHoldTime = 0;
   }
 
   // 1. Step 3D shallow-water wave grids, stairwell cascades & upward floor-to-floor flood overflow
