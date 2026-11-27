@@ -37,7 +37,11 @@ export function buildBuilding(scene) {
     mainSlab.receiveShadow = true;
     scene.add(mainSlab);
     if (f > 0) {
-      const slabBlock = { id: blockId++, floor: f, isLoadBearing: false, integrity: 1.0, destroyed: false, mesh: mainSlab, color: 0x7c5332 };
+      const slabBlock = {
+        id: blockId++, floor: f, isLoadBearing: false, isSlab: true,
+        width: 6.2, height: 0.18, depth: 5.8,
+        integrity: 1.0, destroyed: false, mesh: mainSlab, color: 0x7c5332
+      };
       mainSlab.userData.structuralBlock = slabBlock;
       structuralBlocks.push(slabBlock);
     }
@@ -48,7 +52,11 @@ export function buildBuilding(scene) {
     frontLanding.receiveShadow = true;
     scene.add(frontLanding);
     if (f > 0) {
-      const landBlock = { id: blockId++, floor: f, isLoadBearing: false, integrity: 1.0, destroyed: false, mesh: frontLanding, color: 0x7c5332 };
+      const landBlock = {
+        id: blockId++, floor: f, isLoadBearing: false, isSlab: true,
+        width: 2.0, height: 0.18, depth: 2.3,
+        integrity: 1.0, destroyed: false, mesh: frontLanding, color: 0x7c5332
+      };
       frontLanding.userData.structuralBlock = landBlock;
       structuralBlocks.push(landBlock);
     }
@@ -92,7 +100,12 @@ export function buildBuilding(scene) {
       panel.castShadow = true;
       panel.receiveShadow = true;
       scene.add(panel);
-      const b = { id: blockId++, floor: f, isLoadBearing: true, integrity: 1.0, destroyed: false, mesh: panel, color: 0xd1d6de };
+      const b = {
+        id: blockId++, floor: f, isLoadBearing: true, isSlab: false,
+        width: seg.w - 0.03, height: FLOOR_HEIGHT, depth: 0.16,
+        integrity: 1.0, destroyed: false, mesh: panel,
+        origPos: panel.position.clone(), color: 0xd1d6de
+      };
       panel.userData.structuralBlock = b;
       structuralBlocks.push(b);
     }
@@ -108,7 +121,12 @@ export function buildBuilding(scene) {
       panel.castShadow = true;
       panel.receiveShadow = true;
       scene.add(panel);
-      const b = { id: blockId++, floor: f, isLoadBearing: true, integrity: 1.0, destroyed: false, mesh: panel, color: 0xd1d6de };
+      const b = {
+        id: blockId++, floor: f, isLoadBearing: true, isSlab: false,
+        width: 0.16, height: FLOOR_HEIGHT, depth: seg.d - 0.03,
+        integrity: 1.0, destroyed: false, mesh: panel,
+        origPos: panel.position.clone(), color: 0xd1d6de
+      };
       panel.userData.structuralBlock = b;
       structuralBlocks.push(b);
     }

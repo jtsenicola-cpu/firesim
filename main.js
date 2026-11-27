@@ -186,26 +186,119 @@ const shardMat = new THREE.MeshPhysicalMaterial({
   side: THREE.DoubleSide
 });
 
-function spawnRubbleChunks(origin, colorHex = 0x94a3b8, count = 8, spread = 1.6) {
+function getSupportingFloorY(x, y, z) {
+  // Check upper floors from top down to see if an intact slab supports (x, z) below y
+  for (let f = NUM_FLOORS - 1; f >= 1; f--) {
+    const slabY = f * FLOOR_HEIGHT;
+    if (y < slabY - 0.05) continue;
+    // Stairwell cutout on right side (x > 2.1, z < 0.6) has no slab
+    if (x > 2.1 && z < 0.6) continue;
+    const isLanding = x > 2.1 && z >= 0.6;
+    const slab = structuralBlocks.find((b) =>
+      b.isSlab && b.floor === f && (isLanding ? b.width < 3.0 : b.width > 3.0)
+    );
+    if (slab && !slab.destroyed) return slabY;
+  }
+  // Ground floor (y = 0) if inside building footprint, else stage ground (-0.18)
+  if (x >= -4.1 && x <= 4.1 && z >= -2.9 && z <= 2.9) return 0.0;
+  return -0.18;
+}
+
+function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
+  block.mesh.visible = false;
+  const center = block.mesh.position;
+  const w = block.width ?? 1.8;
+  const h = block.height ?? 2.4;
+  const d = block.depth ?? 0.2;
+
+  // 1. Leave a jagged broken masonry stump remnant at the base of destroyed walls
+  if (!block.isSlab) {
+    const stumpH = 0.25 + Math.random() * 0.28;
+    const stump = new THREE.Mesh(
+      new THREE.BoxGeometry(w, stumpH, d),
+      new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.92 })
+    );
+    stump.position.set(center.x, block.floor * FLOOR_HEIGHT + stumpH / 2, center.z);
+    stump.rotation.z = (Math.random() - 0.5) * 0.08;
+    stump.castShadow = true;
+    stump.receiveShadow = true;
+    stump.userData.noRaycast = true;
+    scene.add(stump);
+    remnantMeshes.push(stump);
+  }
+
+  // 2. Spawn persistent volumetric rubble chunks across the full block dimensions
+  const count = block.isSlab ? 20 : 14;
   for (let i = 0; i < count; i++) {
-    if (rubbleChunks.length > 140) break;
+    if (rubbleChunks.length >= 240) {
+      const oldest = rubbleChunks.shift();
+      scene.remove(oldest.mesh);
+      oldest.mesh.material.dispose();
+    }
+    const mat = new THREE.MeshStandardMaterial({
+      color: i % 3 === 0 ? 0x64748b : block.color,
+      roughness: 0.9,
+      metalness: 0.05
+    });
+    const mesh = new THREE.Mesh(rubbleGeom, mat);
+    mesh.position.set(
+      center.x + (Math.random() - 0.5) * w * 0.9,
+      center.y + (Math.random() - 0.5) * h * 0.9,
+      center.z + (Math.random() - 0.5) * d * 0.9
+    );
+    const sx = 0.6 + Math.random() * (block.isSlab ? 1.8 : 1.2);
+    const sy = 0.4 + Math.random() * 0.9;
+    const sz = 0.6 + Math.random() * (block.isSlab ? 1.8 : 1.1);
+    mesh.scale.set(sx, sy, sz);
+    mesh.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.noRaycast = true;
+    scene.add(mesh);
+
+    const blast = impactPoint
+      ? mesh.position.clone().sub(impactPoint).normalize().multiplyScalar(2.2 + Math.random() * 2.5)
+      : new THREE.Vector3((Math.random() - 0.5) * 2.6, Math.random() * 1.2, (Math.random() - 0.5) * 2.6);
+    if (impactDir) blast.addScaledVector(impactDir, 1.5);
+
+    rubbleChunks.push({
+      mesh,
+      halfH: 0.11 * sy,
+      vel: blast,
+      spin: new THREE.Vector3((Math.random() - 0.5) * 7, (Math.random() - 0.5) * 7, (Math.random() - 0.5) * 7),
+      settled: false
+    });
+  }
+}
+
+const remnantMeshes = [];
+
+function spawnRubbleChunks(origin, colorHex = 0x94a3b8, count = 6, spread = 0.8) {
+  for (let i = 0; i < count; i++) {
+    if (rubbleChunks.length >= 240) {
+      const oldest = rubbleChunks.shift();
+      scene.remove(oldest.mesh);
+      oldest.mesh.material.dispose();
+    }
     const mat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.9, metalness: 0.05 });
     const mesh = new THREE.Mesh(rubbleGeom, mat);
     mesh.position.copy(origin).add(new THREE.Vector3(
       (Math.random() - 0.5) * spread,
-      (Math.random() - 0.5) * 1.1,
+      (Math.random() - 0.5) * spread,
       (Math.random() - 0.5) * spread
     ));
-    mesh.scale.set(0.5 + Math.random() * 1.1, 0.4 + Math.random() * 0.9, 0.5 + Math.random() * 1.1);
+    const sy = 0.35 + Math.random() * 0.55;
+    mesh.scale.set(0.4 + Math.random() * 0.6, sy, 0.4 + Math.random() * 0.6);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData.noRaycast = true;
     scene.add(mesh);
     rubbleChunks.push({
       mesh,
-      vel: new THREE.Vector3((Math.random() - 0.5) * 4.2, 0.8 + Math.random() * 2.5, (Math.random() - 0.5) * 4.2),
+      halfH: 0.11 * sy,
+      vel: new THREE.Vector3((Math.random() - 0.5) * 3.5, 0.6 + Math.random() * 2.0, (Math.random() - 0.5) * 3.5),
       spin: new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8),
-      life: 1.0
+      settled: false
     });
   }
 }
@@ -320,12 +413,24 @@ function applyToolAtPointer(clientX, clientY, dtScale = 1.0) {
       const block = hit.object.userData.structuralBlock;
       const fractured = damageBlock(block, 0.35 * dtScale);
       if (fractured) {
-        block.mesh.visible = false;
-        spawnRubbleChunks(hit.point, block.color, 10, 1.4);
-        for (let i = 0; i < 4; i++) {
-          spawnParticle('steam', hit.point.clone(), new THREE.Vector3((Math.random() - 0.5) * 1.4, 0.8 + Math.random(), (Math.random() - 0.5) * 1.4), block.floor, 0.9);
+        spawnBlockFracture(block, hit.point, raycaster.ray.direction);
+        for (let i = 0; i < 5; i++) {
+          spawnParticle('steam', hit.point.clone(), new THREE.Vector3((Math.random() - 0.5) * 1.6, 0.8 + Math.random(), (Math.random() - 0.5) * 1.6), block.floor, 1.0);
         }
         audio.playImpactCrunch();
+      } else {
+        // Progressive stress feedback: panel tilts/jitters and chips off splinters
+        const dmg = 1.0 - block.integrity;
+        if (!block.isSlab && block.origPos) {
+          block.mesh.rotation.z = (Math.random() - 0.5) * 0.05 * dmg;
+          block.mesh.rotation.x = (Math.random() - 0.5) * 0.04 * dmg;
+          block.mesh.position.x = block.origPos.x + (Math.random() - 0.5) * 0.04 * dmg;
+        }
+        if (Math.random() < 0.65) {
+          spawnRubbleChunks(hit.point, block.color, 2, 0.35);
+          spawnParticle('steam', hit.point.clone(), new THREE.Vector3((Math.random() - 0.5) * 0.9, 0.6, (Math.random() - 0.5) * 0.9), block.floor, 0.55);
+          audio.playImpactCrunch();
+        }
       }
     }
   } else if (tool === 'water') {
@@ -521,11 +626,16 @@ function stepSimulation(dt, elapsed) {
         item.group.rotation.z = item.swingAngle;
       }
     }
-    if (item.fallen && item.group.position.y > item.baseY + 0.02) {
-      item.vy -= 9.8 * dt;
-      item.group.position.y = Math.max(item.baseY + 0.02, item.group.position.y + item.vy * dt);
-      item.group.rotation.z += dt * 1.4;
-      item.group.rotation.x += dt * 0.9;
+    if (item.fallen) {
+      const supportY = getSupportingFloorY(item.group.position.x, item.group.position.y, item.group.position.z);
+      if (item.group.position.y > supportY + 0.02) {
+        item.vy -= 9.8 * dt;
+        item.group.position.y = Math.max(supportY + 0.02, item.group.position.y + item.vy * dt);
+        item.group.rotation.z += dt * 1.4;
+        item.group.rotation.x += dt * 0.9;
+      } else {
+        item.vy = 0;
+      }
     }
 
     const waterDepth = waterFloors[item.floor].getDepthAt(item.group.position.x, item.group.position.z);
@@ -675,8 +785,7 @@ function stepSimulation(dt, elapsed) {
     floorTemps,
     numFloors: NUM_FLOORS,
     onBlockDestroyed: (block) => {
-      block.mesh.visible = false;
-      spawnRubbleChunks(block.mesh.position, block.color, 9, 1.8);
+      spawnBlockFracture(block);
       spawnParticle('steam', block.mesh.position.clone(), new THREE.Vector3((Math.random() - 0.5) * 1.5, 1.0, (Math.random() - 0.5) * 1.5), block.floor, 1.1);
     },
     onFloorCollapse: (f) => {
@@ -687,24 +796,26 @@ function stepSimulation(dt, elapsed) {
     }
   });
 
-  // Step tumbling rubble chunks
-  for (let i = rubbleChunks.length - 1; i >= 0; i--) {
+  // Step persistent tumbling rubble chunks with per-floor slab collision
+  for (let i = 0; i < rubbleChunks.length; i++) {
     const r = rubbleChunks[i];
-    r.life -= dt * 0.14;
+    if (r.settled) continue;
+
     r.vel.y -= 9.8 * dt;
     r.mesh.position.addScaledVector(r.vel, dt);
     r.mesh.rotation.x += r.spin.x * dt;
     r.mesh.rotation.y += r.spin.y * dt;
     r.mesh.rotation.z += r.spin.z * dt;
-    if (r.mesh.position.y <= -0.08) {
-      r.mesh.position.y = -0.08;
-      r.vel.set(r.vel.x * 0.55, Math.abs(r.vel.y) * 0.25, r.vel.z * 0.55);
-      r.spin.multiplyScalar(0.5);
-    }
-    if (r.life <= 0) {
-      scene.remove(r.mesh);
-      r.mesh.material.dispose();
-      rubbleChunks.splice(i, 1);
+
+    const groundY = getSupportingFloorY(r.mesh.position.x, r.mesh.position.y, r.mesh.position.z) + r.halfH;
+    if (r.mesh.position.y <= groundY) {
+      r.mesh.position.y = groundY;
+      r.vel.set(r.vel.x * 0.45, Math.abs(r.vel.y) * 0.22, r.vel.z * 0.45);
+      r.spin.multiplyScalar(0.45);
+      if (r.vel.lengthSq() < 0.04) {
+        r.vel.set(0, 0, 0);
+        r.settled = true;
+      }
     }
   }
 
@@ -843,8 +954,7 @@ window.__firesim = {
     if (!b) return false;
     const fractured = damageBlock(b, amount);
     if (fractured) {
-      b.mesh.visible = false;
-      spawnRubbleChunks(b.mesh.position, b.color, 10, 1.5);
+      spawnBlockFracture(b);
     }
     return fractured;
   },

@@ -105,7 +105,17 @@ try {
   await page.waitForTimeout(150);
   await page.screenshot({ path: path.join(OUT_DIR, '03-punching-bag-water.png') });
 
-  console.log(JSON.stringify({ executablePath, errors, metrics1, metrics2 }, null, 2));
+  // Scenario 3: Red Faction structural destruction & persistent rubble remnants on Floor 2
+  const metrics3 = await page.evaluate(() => {
+    window.__firesim.setCameraPreset('default');
+    window.__firesim.breachBlock(10, 1.0); // Floor 2 back wall bay
+    window.__firesim.breachBlock(11, 1.0); // Floor 2 back wall bay
+    return window.__firesim.step(0.03, 90);
+  });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: path.join(OUT_DIR, '04-destruction-remnants.png') });
+
+  console.log(JSON.stringify({ executablePath, errors, metrics1, metrics2, metrics3Summary: { intactBlocks: metrics3.intactBlocks, totalBlocks: metrics3.totalBlocks } }, null, 2));
   if (errors.length > 0) process.exitCode = 1;
 } finally {
   if (browser) await browser.close();
