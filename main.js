@@ -916,10 +916,11 @@ function stepSimulation(dt, elapsed) {
     let groundY = getSupportingFloorY(r.mesh.position.x, r.mesh.position.y, r.mesh.position.z) + r.halfH;
     const radA = r.radius ?? 0.22;
 
-    // Debris-to-debris collision & stacking so chunks do not pass through each other
+    // Debris-to-debris collision & stacking against settled/resting debris so chunks don't stack in mid-air
     for (let j = 0; j < allDebris.length; j++) {
       if (i === j) continue;
       const o = allDebris[j];
+      if (!o.settled) continue;
       const radB = o.radius ?? 0.22;
       const dx = r.mesh.position.x - o.mesh.position.x;
       const dz = r.mesh.position.z - o.mesh.position.z;
@@ -927,7 +928,7 @@ function stepSimulation(dt, elapsed) {
       const minDist = (radA + radB) * 0.72;
       if (distXZ2 < minDist * minDist) {
         const dy = r.mesh.position.y - o.mesh.position.y;
-        const stackTop = o.mesh.position.y + o.halfH + r.halfH;
+        const stackTop = Math.min(o.mesh.position.y + o.halfH + r.halfH, 2.2);
         if (dy > 0 && r.mesh.position.y <= stackTop + 0.15) {
           groundY = Math.max(groundY, stackTop);
         } else if (Math.abs(dy) < (r.halfH + o.halfH) * 0.85 && distXZ2 > 1e-5) {
