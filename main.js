@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildBuilding, FLOOR_HEIGHT, NUM_FLOORS } from './building.js';
 import { FloorWaterSystem } from './fluid.js';
 import { createSpriteGlowTexture } from './textures.js';
@@ -8,7 +13,8 @@ import { stepThermalCompartments } from './thermal.js';
 
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0f17);
+scene.background = new THREE.Color(0x070a10);
+scene.fog = new THREE.FogExp2(0x070a10, 0.02);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
 
@@ -20,8 +26,25 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileViewport() ? 1.
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.05;
 container.appendChild(renderer.domElement);
+
+// PBR Environment Reflections for wet floors, water pools, and glass
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.42;
+
+// HDR Post-Processing (RenderPass -> UnrealBloomPass -> OutputPass)
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.42, // subtle AAA bloom strength
+  0.55, // radius
+  0.82  // threshold so only hot flame cores, sparks & embers glow
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 4.1, 0);
@@ -39,30 +62,48 @@ function updateCameraFraming() {
 updateCameraFraming();
 window.addEventListener('resize', () => {
   updateCameraFraming();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileViewport() ? 1.5 : 2));
+  const dpr = Math.min(window.devicePixelRatio, isMobileViewport() ? 1.5 : 2);
+  renderer.setPixelRatio(dpr);
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setPixelRatio(dpr);
+  composer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Warm-Cool Three-Point & Hemisphere Lighting
-scene.add(new THREE.HemisphereLight(0xdbeafe, 0x334155, 0.65));
+// Grounding stage plane under the cutaway building
+const stageGround = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.MeshStandardMaterial({ color: 0x0b101b, roughness: 0.88, metalness: 0.1 })
+);
+stageGround.rotation.x = -Math.PI / 2;
+stageGround.position.y = -0.185;
+stageGround.receiveShadow = true;
+scene.add(stageGround);
 
-const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.45);
-keyLight.position.set(-6, 15, 12);
+// Cinematic Warm-Key + Cool-Rim Lighting
+scene.add(new THREE.HemisphereLight(0xc7d2fe, 0x1e293b, 0.45));
+
+const keyLight = new THREE.DirectionalLight(0xfff1e0, 1.35);
+keyLight.position.set(-7, 16, 12);
 keyLight.castShadow = true;
-keyLight.shadow.mapSize.set(1024, 1024);
+const shadowRes = isMobileViewport() ? 1024 : 2048;
+keyLight.shadow.mapSize.set(shadowRes, shadowRes);
 keyLight.shadow.camera.near = 2;
-keyLight.shadow.camera.far = 35;
-const d = 8.5;
+keyLight.shadow.camera.far = 36;
+const d = 9.0;
 keyLight.shadow.camera.left = -d;
 keyLight.shadow.camera.right = d;
-keyLight.shadow.camera.top = d + 3;
+keyLight.shadow.camera.top = d + 3.5;
 keyLight.shadow.camera.bottom = -d;
-keyLight.shadow.bias = -0.0005;
+keyLight.shadow.bias = -0.0004;
 scene.add(keyLight);
+
+const rimLight = new THREE.DirectionalLight(0x60a5fa, 0.48);
+rimLight.position.set(10, 9, -8);
+scene.add(rimLight);
 
 // Dynamic Flickering Fire PointLights per floor
 const fireLights = [0, 1, 2].map((f) => {
-  const pl = new THREE.PointLight(0xff6b1a, 0, 7.5, 1.6);
+  const pl = new THREE.PointLight(0xff6b1a, 0, 9.5, 1.5);
   pl.position.set(0, f * FLOOR_HEIGHT + 1.2, 0);
   scene.add(pl);
   return pl;
@@ -79,6 +120,33 @@ const sparkTex = createSpriteGlowTexture('rgba(255,255,220,1)', 'rgba(255,155,30
 const billboardGeom = new THREE.PlaneGeometry(1, 1);
 
 const particles = [];
+const debrisShards = [];
+const shardGeom = new THREE.PlaneGeometry(0.16, 0.16);
+const shardMat = new THREE.MeshPhysicalMaterial({
+  color: 0xe0f2fe,
+  transparent: true,
+  opacity: 0.7,
+  roughness: 0.05,
+  metalness: 0.15,
+  side: THREE.DoubleSide
+});
+
+function spawnGlassShards(origin, floor) {
+  const floorY = floor * FLOOR_HEIGHT + 0.02;
+  for (let i = 0; i < 12; i++) {
+    const mesh = new THREE.Mesh(shardGeom, shardMat);
+    mesh.position.copy(origin).add(new THREE.Vector3((Math.random() - 0.5) * 1.3, (Math.random() - 0.5) * 1.0, 0.1));
+    mesh.scale.setScalar(0.6 + Math.random() * 0.9);
+    scene.add(mesh);
+    debrisShards.push({
+      mesh,
+      floorY,
+      vel: new THREE.Vector3((Math.random() - 0.5) * 1.8, (Math.random() - 0.2) * 1.2, 1.2 + Math.random() * 2.2),
+      spin: new THREE.Vector3((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9, 0),
+      life: 1.0
+    });
+  }
+}
 
 function spawnParticle(type, pos, vel, floor, scale = 0.55, intensity = 1.0) {
   if (particles.length > 560) return;
@@ -357,12 +425,32 @@ function stepSimulation(dt, elapsed) {
       floorTemps[f] = Math.max(22, floorTemps[f] - dt * 8);
     }
 
-    // Thermal glass shattering at 360°C
+    // Thermal glass shattering at 360°C + falling glass shards
     const win = windows[f];
     if (!win.broken && floorTemps[f] > 360) {
       win.broken = true;
       win.glass.visible = false;
       floorTemps[f] -= 45; // sudden ventilation cooling
+      spawnGlassShards(win.group.position, f);
+    }
+  }
+
+  // Step tumbling glass shards
+  for (let i = debrisShards.length - 1; i >= 0; i--) {
+    const s = debrisShards[i];
+    s.life -= dt * 0.25;
+    s.vel.y -= 9.8 * dt;
+    s.mesh.position.addScaledVector(s.vel, dt);
+    s.mesh.rotation.x += s.spin.x * dt;
+    s.mesh.rotation.y += s.spin.y * dt;
+    if (s.mesh.position.y <= s.floorY) {
+      s.mesh.position.y = s.floorY;
+      s.vel.set(s.vel.x * 0.4, Math.abs(s.vel.y) * 0.25, s.vel.z * 0.4);
+      s.spin.multiplyScalar(0.5);
+    }
+    if (s.life <= 0) {
+      scene.remove(s.mesh);
+      debrisShards.splice(i, 1);
     }
   }
 
@@ -434,7 +522,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   stepSimulation(dt, clock.elapsedTime);
   controls.update();
-  renderer.render(scene, camera);
+  composer.render();
 }
 
 window.__firesim = {
@@ -490,7 +578,7 @@ window.__firesim = {
       stepSimulation(dt, simTime + dt);
     }
     controls.update();
-    renderer.render(scene, camera);
+    composer.render();
     return this.getMetrics();
   },
   setCameraPreset(name = 'default') {
@@ -506,7 +594,7 @@ window.__firesim = {
     }
     camera.updateProjectionMatrix();
     controls.update();
-    renderer.render(scene, camera);
+    composer.render();
   },
   reset() {
     location.reload();
