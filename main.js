@@ -286,23 +286,38 @@ const clearPointer = (e) => {
 renderer.domElement.addEventListener('pointerup', clearPointer);
 renderer.domElement.addEventListener('pointercancel', clearPointer);
 
-// Safe 3D Charring Vertex Deformation
-function deformBurningMesh(item, burnProgress) {
+// Safe 3D Thermal Warping, Slumping & Charring Vertex Deformation
+function deformBurningMesh(item, charAmount) {
+  if (charAmount <= 0.005) return;
+  if (item._lastDeform !== undefined && Math.abs(charAmount - item._lastDeform) < 0.004) return;
+  item._lastDeform = charAmount;
+
   item.group.traverse((child) => {
     if (!child.isMesh || !child.geometry.userData.origPos) return;
     const orig = child.geometry.userData.origPos;
     const pos = child.geometry.attributes.position.array;
-    const shrink = 1.0 - burnProgress * 0.34;
+    const shrink = 1.0 - charAmount * 0.36;
+    const slump = 1.0 - charAmount * 0.48;
     for (let i = 0; i < pos.length; i += 3) {
       const ox = orig[i], oy = orig[i + 1], oz = orig[i + 2];
-      const warp = Math.sin(ox * 6.0 + oy * 5.0) * 0.04 * burnProgress;
-      pos[i] = ox * shrink + warp;
-      pos[i + 1] = oy * (1.0 - burnProgress * 0.42);
-      pos[i + 2] = oz * shrink - warp;
+      const heightBias = Math.max(0, oy);
+      const buckleX = Math.sin(ox * 5.5 + oy * 4.2 + item.floor) * 0.11 * charAmount * (0.4 + heightBias);
+      const buckleZ = Math.cos(oz * 5.5 + oy * 4.7) * 0.11 * charAmount * (0.4 + heightBias);
+      const sagY = Math.abs(Math.sin(ox * 3.1 + oz * 3.7)) * 0.08 * charAmount;
+      pos[i] = ox * shrink + buckleX;
+      pos[i + 1] = Math.max(0, oy * slump - sagY);
+      pos[i + 2] = oz * shrink + buckleZ;
     }
     child.geometry.attributes.position.needsUpdate = true;
     child.geometry.computeVertexNormals();
   });
+
+  // Subtle structural list/tilt as material weakens from extreme heat
+  if (!item.fallen) {
+    const tiltDir = (item.group.position.x >= 0 ? 1 : -1);
+    item.group.rotation.z = tiltDir * charAmount * 0.12;
+    item.group.rotation.x = charAmount * 0.06;
+  }
 }
 
 const clock = new THREE.Clock();
@@ -402,14 +417,23 @@ function stepSimulation(dt, elapsed) {
         const p = item.boundsCenter.clone().add(new THREE.Vector3((Math.random() - 0.5) * sx, sy * 0.8, (Math.random() - 0.5) * sz));
         spawnParticle('smoke', p, new THREE.Vector3((Math.random() - 0.5) * 0.55 + draftX, 1.55 + intensity * 0.45, (Math.random() - 0.5) * 0.55), item.floor, 0.75 + intensity * 0.25);
       }
+    }
 
-      deformBurningMesh(item, 1.0 - item.fuel);
+    // Irreversible thermal charring & de-morphing when object or compartment gets too hot (>150°C)
+    const effectiveTemp = Math.max(item.temp, floorTemps[item.floor] * 0.85);
+    if (effectiveTemp > 150) {
+      const heatRate = Math.min(1.0, (effectiveTemp - 150) / 420) * (1.0 - item.wetness * 0.75);
+      item.thermalChar = Math.min(1.0, (item.thermalChar ?? 0) + dt * 0.055 * heatRate);
+    }
+    const charAmount = Math.max(1.0 - item.fuel, item.thermalChar ?? 0);
+    if (charAmount > 0.01) {
+      deformBurningMesh(item, charAmount);
     }
 
     item.uniforms.uWetness.value = item.wetness;
     item.uniforms.uSootLevel.value = floorSoot[item.floor];
-    item.uniforms.uBurnAmount.value = 1.0 - item.fuel;
-    item.uniforms.uEmberGlow.value = item.burning ? 1.0 : Math.max(0, (item.temp - 140) / 380);
+    item.uniforms.uBurnAmount.value = charAmount;
+    item.uniforms.uEmberGlow.value = item.burning ? 1.0 : Math.max(0, (effectiveTemp - 140) / 360);
     item.uniforms.uTime.value = elapsed;
   }
 
