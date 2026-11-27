@@ -272,10 +272,25 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
           mesh: section,
           floor: block.floor,
           halfH: h / 2 + 0.08,
+          radius: Math.min(qw, qd) * 0.35,
           vel: new THREE.Vector3(sx * (0.4 + Math.random() * 0.6), -0.5, sz * (0.4 + Math.random() * 0.6)),
           spin: new THREE.Vector3((Math.random() - 0.5) * 1.1, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 1.1),
           settled: false
         });
+      }
+    }
+
+    // Drop any walls on this floor that were standing directly on this destroyed slab
+    if (!block.isRoof) {
+      for (const b of structuralBlocks) {
+        if (!b.destroyed && b.isLoadBearing && b.floor === block.floor) {
+          const sy = getSupportingFloorY(b.mesh.position.x, block.floor * FLOOR_HEIGHT + 0.1, b.mesh.position.z);
+          if (sy < block.floor * FLOOR_HEIGHT - 0.1) {
+            b.integrity = 0;
+            b.destroyed = true;
+            spawnBlockFracture(b);
+          }
+        }
       }
     }
   }
@@ -317,6 +332,7 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
     rubbleChunks.push({
       mesh,
       halfH: 0.11 * sy,
+      radius: 0.14 * Math.max(sx, sz),
       vel: blast,
       spin: new THREE.Vector3((Math.random() - 0.5) * 7, (Math.random() - 0.5) * 7, (Math.random() - 0.5) * 7),
       settled: false
@@ -340,8 +356,10 @@ function spawnRubbleChunks(origin, colorHex = 0x94a3b8, count = 6, spread = 0.8)
       (Math.random() - 0.5) * spread,
       (Math.random() - 0.5) * spread
     ));
+    const sx = 0.4 + Math.random() * 0.6;
     const sy = 0.35 + Math.random() * 0.55;
-    mesh.scale.set(0.4 + Math.random() * 0.6, sy, 0.4 + Math.random() * 0.6);
+    const sz = 0.4 + Math.random() * 0.6;
+    mesh.scale.set(sx, sy, sz);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData.noRaycast = true;
@@ -349,6 +367,7 @@ function spawnRubbleChunks(origin, colorHex = 0x94a3b8, count = 6, spread = 0.8)
     rubbleChunks.push({
       mesh,
       halfH: 0.11 * sy,
+      radius: 0.14 * Math.max(sx, sz),
       vel: new THREE.Vector3((Math.random() - 0.5) * 3.5, 0.6 + Math.random() * 2.0, (Math.random() - 0.5) * 3.5),
       spin: new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8),
       settled: false
@@ -665,9 +684,15 @@ function stepSimulation(dt, elapsed) {
   });
 
   for (const item of flammables) {
-    // Check supporting furniture collapse (#4) or hanging strap failure
-    if (item.supportedBy && !item.fallen && item.supportedBy.fuel < 0.32) {
+    // Check supporting furniture collapse (#4), missing floor slab beneath object, or hanging strap failure
+    if (item.supportedBy && !item.fallen && (item.supportedBy.fuel < 0.32 || item.supportedBy.fallen)) {
       item.fallen = true;
+    }
+    if (!item.fallen && !item.supportedBy && !item.isHanging && !item.name.startsWith('Stairs ') && item.floor > 0) {
+      const floorSupport = getSupportingFloorY(item.group.position.x, item.floor * FLOOR_HEIGHT + 0.1, item.group.position.z);
+      if (floorSupport < item.floor * FLOOR_HEIGHT - 0.1) {
+        item.fallen = true;
+      }
     }
     if (item.isHanging && !item.fallen) {
       if (item.fuel < 0.38 || (item.thermalChar ?? 0) > 0.65) {
@@ -876,8 +901,10 @@ function stepSimulation(dt, elapsed) {
     }
   });
 
-  // Step persistent tumbling rubble chunks & unsupported remnants with per-floor slab collision
-  for (const r of rubbleChunks) {
+  // Step persistent tumbling rubble chunks & unsupported remnants with per-floor slab + debris-to-debris collision
+  const allDebris = [...rubbleChunks, ...remnantMeshes];
+  for (let i = 0; i < allDebris.length; i++) {
+    const r = allDebris[i];
     if (r.settled) continue;
 
     r.vel.y -= 9.8 * dt;
@@ -886,30 +913,41 @@ function stepSimulation(dt, elapsed) {
     r.mesh.rotation.y += r.spin.y * dt;
     r.mesh.rotation.z += r.spin.z * dt;
 
-    const groundY = getSupportingFloorY(r.mesh.position.x, r.mesh.position.y, r.mesh.position.z) + r.halfH;
+    let groundY = getSupportingFloorY(r.mesh.position.x, r.mesh.position.y, r.mesh.position.z) + r.halfH;
+    const radA = r.radius ?? 0.22;
+
+    // Debris-to-debris collision & stacking so chunks do not pass through each other
+    for (let j = 0; j < allDebris.length; j++) {
+      if (i === j) continue;
+      const o = allDebris[j];
+      const radB = o.radius ?? 0.22;
+      const dx = r.mesh.position.x - o.mesh.position.x;
+      const dz = r.mesh.position.z - o.mesh.position.z;
+      const distXZ2 = dx * dx + dz * dz;
+      const minDist = (radA + radB) * 0.72;
+      if (distXZ2 < minDist * minDist) {
+        const dy = r.mesh.position.y - o.mesh.position.y;
+        const stackTop = o.mesh.position.y + o.halfH + r.halfH;
+        if (dy > 0 && r.mesh.position.y <= stackTop + 0.15) {
+          groundY = Math.max(groundY, stackTop);
+        } else if (Math.abs(dy) < (r.halfH + o.halfH) * 0.85 && distXZ2 > 1e-5) {
+          const distXZ = Math.sqrt(distXZ2);
+          const push = (minDist - distXZ) * 0.35;
+          r.mesh.position.x += (dx / distXZ) * push;
+          r.mesh.position.z += (dz / distXZ) * push;
+        }
+      }
+    }
+
     if (r.mesh.position.y <= groundY) {
       r.mesh.position.y = groundY;
-      r.vel.set(r.vel.x * 0.45, Math.abs(r.vel.y) * 0.22, r.vel.z * 0.45);
+      r.vel.set(r.vel.x * 0.45, Math.abs(r.vel.y) * 0.2, r.vel.z * 0.45);
       r.spin.multiplyScalar(0.45);
       if (r.vel.lengthSq() < 0.04) {
         r.vel.set(0, 0, 0);
+        r.spin.set(0, 0, 0);
         r.settled = true;
       }
-    }
-  }
-  for (const rem of remnantMeshes) {
-    if (rem.settled) continue;
-    rem.vel.y -= 9.8 * dt;
-    rem.mesh.position.addScaledVector(rem.vel, dt);
-    rem.mesh.rotation.x += rem.spin.x * dt;
-    rem.mesh.rotation.y += rem.spin.y * dt;
-    rem.mesh.rotation.z += rem.spin.z * dt;
-    const groundY = getSupportingFloorY(rem.mesh.position.x, rem.mesh.position.y, rem.mesh.position.z) + rem.halfH;
-    if (rem.mesh.position.y <= groundY) {
-      rem.mesh.position.y = groundY;
-      rem.vel.set(0, 0, 0);
-      rem.spin.set(0, 0, 0);
-      rem.settled = true;
     }
   }
 
