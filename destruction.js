@@ -54,24 +54,25 @@ export function stepStructuralIntegrity({
     }
   }
 
-  // Cascade structural collapse upward if a lower floor loses too many load-bearing supports
+  // Cascade structural collapse upward: floor f's walls support floor f+1 (and roof on top floor)
   const collapsedFloors = new Array(numFloors).fill(false);
   for (let f = 0; f < numFloors; f++) {
     const ratio = totalSupport[f] > 0 ? intactSupport[f] / totalSupport[f] : 1.0;
-    const belowCollapsed = f > 0 && collapsedFloors[f - 1];
-    if (ratio < SUPPORT_RATIO_THRESHOLD || belowCollapsed) {
-      collapsedFloors[f] = true;
-      // Destroy remaining blocks on this floor and upper floors that lost support
+    if (ratio < SUPPORT_RATIO_THRESHOLD) {
+      for (let cf = f + 1; cf < numFloors; cf++) collapsedFloors[cf] = true;
       for (let i = 0; i < blocks.length; i++) {
         const b = blocks[i];
-        if (!b.destroyed && b.floor >= f) {
+        if (b.destroyed) continue;
+        const isRoofOnTop = b.isRoof && b.floor >= f;
+        const isUpperStructure = b.floor >= f + 1;
+        if (isUpperStructure || isRoofOnTop) {
           b.integrity = 0;
           b.destroyed = true;
           if (onBlockDestroyed) onBlockDestroyed(b, 'collapse');
         }
       }
-      if (onFloorCollapse) onFloorCollapse(f);
-      break; // upper floors already cascaded in loop above
+      if (onFloorCollapse) onFloorCollapse(f + 1 < numFloors ? f + 1 : f);
+      break;
     }
   }
 

@@ -257,17 +257,17 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
     }
   }
 
-  // 2. Spawn persistent volumetric rubble chunks across the full block dimensions
-  const count = block.isSlab ? 20 : 14;
+  // 2. Spawn persistent volumetric rubble chunks across the full block dimensions (larger planks for floor slabs)
+  const count = block.isSlab ? 24 : 14;
   for (let i = 0; i < count; i++) {
-    if (rubbleChunks.length >= 240) {
+    if (rubbleChunks.length >= 260) {
       const oldest = rubbleChunks.shift();
       scene.remove(oldest.mesh);
       oldest.mesh.material.dispose();
     }
     const mat = new THREE.MeshStandardMaterial({
-      color: i % 3 === 0 ? 0x64748b : block.color,
-      roughness: 0.9,
+      color: block.isSlab ? (block.isRoof ? 0x334155 : 0x8b5a2b) : (i % 3 === 0 ? 0x64748b : block.color),
+      roughness: 0.88,
       metalness: 0.05
     });
     const mesh = new THREE.Mesh(rubbleGeom, mat);
@@ -276,9 +276,9 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
       center.y + (Math.random() - 0.5) * h * 0.9,
       center.z + (Math.random() - 0.5) * d * 0.9
     );
-    const sx = 0.6 + Math.random() * (block.isSlab ? 1.8 : 1.2);
-    const sy = 0.4 + Math.random() * 0.9;
-    const sz = 0.6 + Math.random() * (block.isSlab ? 1.8 : 1.1);
+    const sx = block.isSlab ? (1.8 + Math.random() * 2.2) : (0.6 + Math.random() * 1.2);
+    const sy = block.isSlab ? (0.45 + Math.random() * 0.35) : (0.4 + Math.random() * 0.9);
+    const sz = block.isSlab ? (1.6 + Math.random() * 2.0) : (0.6 + Math.random() * 1.1);
     mesh.scale.set(sx, sy, sz);
     mesh.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
     mesh.castShadow = true;

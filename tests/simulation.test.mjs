@@ -204,15 +204,17 @@ test('deep lower-floor flood overflows upward into the upper floor', () => {
 
 test('destroying load-bearing walls on lower floor collapses upper floors', () => {
   const blocks = [
-    { id: 0, floor: 0, isLoadBearing: true, integrity: 1.0, destroyed: false },
-    { id: 1, floor: 0, isLoadBearing: true, integrity: 1.0, destroyed: false },
-    { id: 2, floor: 0, isLoadBearing: true, integrity: 1.0, destroyed: false },
-    { id: 3, floor: 1, isLoadBearing: true, integrity: 1.0, destroyed: false },
-    { id: 4, floor: 2, isLoadBearing: true, integrity: 1.0, destroyed: false }
+    { id: 0, floor: 0, isLoadBearing: true, isSlab: false, integrity: 1.0, destroyed: false },
+    { id: 1, floor: 0, isLoadBearing: true, isSlab: false, integrity: 1.0, destroyed: false },
+    { id: 2, floor: 0, isLoadBearing: true, isSlab: false, integrity: 1.0, destroyed: false },
+    { id: 3, floor: 1, isLoadBearing: false, isSlab: true, integrity: 1.0, destroyed: false },
+    { id: 4, floor: 1, isLoadBearing: true, isSlab: false, integrity: 1.0, destroyed: false },
+    { id: 5, floor: 2, isLoadBearing: true, isSlab: false, integrity: 1.0, destroyed: false },
+    { id: 6, floor: 2, isLoadBearing: false, isSlab: true, isRoof: true, integrity: 1.0, destroyed: false }
   ];
   const collapsed = [];
   damageBlock(blocks[0], 1.0);
-  damageBlock(blocks[1], 1.0); // 1/3 = 0.33 < 0.42 threshold
+  damageBlock(blocks[1], 1.0); // 1/3 = 0.33 < 0.42 threshold on floor 0
 
   const result = stepStructuralIntegrity({
     dt: 0.016,
@@ -222,10 +224,13 @@ test('destroying load-bearing walls on lower floor collapses upper floors', () =
     onFloorCollapse: (f) => collapsed.push(f)
   });
 
-  assert.equal(result[0], true, 'Floor 0 should trigger structural collapse');
-  assert.deepEqual(collapsed, [0]);
-  assert.equal(blocks[3].destroyed, true, 'Floor 1 support should collapse');
-  assert.equal(blocks[4].destroyed, true, 'Floor 2 support should collapse');
+  assert.equal(result[1], true, 'Floor 1 (supported by Floor 0 walls) should collapse');
+  assert.equal(result[2], true, 'Floor 2 should also collapse');
+  assert.deepEqual(collapsed, [1]);
+  assert.equal(blocks[2].destroyed, false, 'Remaining Floor 0 wall stays standing');
+  assert.equal(blocks[3].destroyed, true, 'Floor 1 slab should collapse');
+  assert.equal(blocks[4].destroyed, true, 'Floor 1 wall should collapse');
+  assert.equal(blocks[6].destroyed, true, 'Roof should collapse');
 });
 
 
