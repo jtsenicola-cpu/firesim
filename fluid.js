@@ -18,16 +18,46 @@ export class FloorWaterSystem {
     this.geom = new THREE.PlaneGeometry(width, depth, this.nx - 1, this.nz - 1);
     this.geom.rotateX(-Math.PI / 2);
 
+    this.waterUniforms = {
+      uTime: { value: 0 },
+      uHeat: { value: 0 }
+    };
+
     this.mat = new THREE.MeshPhysicalMaterial({
       color: 0x38bdf8,
       emissive: 0x0369a1,
-      emissiveIntensity: 0.25,
+      emissiveIntensity: 0.22,
       transparent: true,
-      opacity: 0.62,
-      roughness: 0.08,
-      metalness: 0.1,
+      opacity: 0.68,
+      roughness: 0.06,
+      metalness: 0.12,
+      clearcoat: 0.9,
+      clearcoatRoughness: 0.08,
       depthWrite: false
     });
+
+    this.mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, this.waterUniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vWaterUv;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWaterUv = uv;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           uniform float uTime;
+           uniform float uHeat;
+           varying vec2 vWaterUv;`
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+           float r1 = sin(vWaterUv.x * 38.0 + uTime * 3.2) * cos(vWaterUv.y * 34.0 - uTime * 2.7);
+           float r2 = sin((vWaterUv.x + vWaterUv.y) * 52.0 - uTime * 4.1);
+           float shimmer = smoothstep(0.55, 1.0, (r1 + r2) * 0.5);
+           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.96, 1.0), shimmer * (0.28 + uHeat * 0.35));`
+        );
+    };
 
     this.mesh = new THREE.Mesh(this.geom, this.mat);
     this.mesh.position.set(0, baseY + 0.008, 0);
@@ -48,6 +78,8 @@ export class FloorWaterSystem {
   }
 
   step(dt, lowerFloorWater = null, floorTemp = 22) {
+    this.waterUniforms.uTime.value += dt;
+    this.waterUniforms.uHeat.value = Math.min(1.0, Math.max(0.0, (floorTemp - 80) / 300));
     const totalVolume = this.grid.step(dt, lowerFloorWater ? lowerFloorWater.grid : null, floorTemp);
 
     const posAttr = this.geom.attributes.position;

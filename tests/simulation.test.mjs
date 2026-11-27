@@ -134,4 +134,43 @@ test('fire extends across hallway objects and climbs up the stairs to floor 2', 
   assert.equal(flammables[6].burning, true, 'Floor 2 Landing Bench at top of stairs should ignite');
 });
 
+test('sealed fire depletes oxygen and broken window restores oxygen', () => {
+  const flammables = [
+    { name: 'Sofa', floor: 0, burning: true, temp: 500, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: 0, y: 0, z: 0 } }
+  ];
+  const floorTemps = [350, 22, 22];
+  const floorSoot = [0, 0, 0];
+  const floorO2 = [0.21, 0.21, 0.21];
+  const windows = [{ broken: false }, { broken: false }, { broken: false }];
+
+  for (let i = 0; i < 300; i++) {
+    stepThermalCompartments({
+      dt: 0.05,
+      flammables,
+      floorTemps,
+      floorSoot,
+      floorO2,
+      windows,
+      getPos: (item) => item.pos
+    });
+  }
+  const depletedO2 = floorO2[0];
+  assert.ok(depletedO2 < 0.16, `Sealed fire should deplete O2 below 0.16, got ${depletedO2}`);
+
+  windows[0].broken = true;
+  for (let i = 0; i < 200; i++) {
+    stepThermalCompartments({
+      dt: 0.05,
+      flammables,
+      floorTemps,
+      floorSoot,
+      floorO2,
+      windows,
+      getPos: (item) => item.pos
+    });
+  }
+  assert.ok(floorO2[0] > depletedO2, 'Breaking window should replenish oxygen');
+});
+
+
 

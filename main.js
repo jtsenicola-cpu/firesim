@@ -10,6 +10,7 @@ import { FloorWaterSystem } from './fluid.js';
 import { createSpriteGlowTexture } from './textures.js';
 import { createFlameMaterial, createSmokeMaterial } from './shaders.js';
 import { stepThermalCompartments } from './thermal.js';
+import { FireAudioEngine } from './audio.js';
 
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
@@ -109,10 +110,12 @@ const fireLights = [0, 1, 2].map((f) => {
   return pl;
 });
 
-const { flammables, floorSurfaces, windows } = buildBuilding(scene);
+const { flammables, floorSurfaces, windows, smokeLayers } = buildBuilding(scene);
 const waterFloors = [0, 1, 2].map((f) => new FloorWaterSystem(scene, f, f * FLOOR_HEIGHT));
 const floorTemps = [22, 22, 22];
 const floorSoot = [0, 0, 0];
+const floorO2 = [0.21, 0.21, 0.21];
+const audio = new FireAudioEngine();
 
 // Soft Radial Sprite Particles (Fire, Smoke, Water, Steam, Ember Sparks)
 const waterTex = createSpriteGlowTexture('rgba(186,230,253,0.95)', 'rgba(56,189,248,0.65)', 'rgba(0,0,0,0)');
@@ -206,6 +209,11 @@ document.getElementById('btn-water').onclick = () => setTool('water');
 document.getElementById('btn-orbit').onclick = () => setTool('orbit');
 document.getElementById('btn-drain').onclick = () => waterFloors.forEach((w) => w.drain());
 document.getElementById('btn-reset').onclick = () => location.reload();
+document.getElementById('btn-audio').onclick = () => {
+  audio.unlock();
+  const muted = audio.toggleMute();
+  document.getElementById('btn-audio').textContent = muted ? '🔇' : '🔊';
+};
 
 function applyToolAtPointer(e) {
   if (tool === 'orbit') return;
@@ -228,21 +236,37 @@ function applyToolAtPointer(e) {
       const f = Math.max(0, Math.min(2, Math.floor(pt.y / FLOOR_HEIGHT)));
       waterFloors[f].addWaterAt(pt.x, pt.z, 0.048);
 
-      for (let i = 0; i < 4; i++) {
+      // Arcing water hose stream from nozzle toward target point
+      const nozzle = camera.position.clone().add(new THREE.Vector3(0.45, -0.55, 0).applyQuaternion(camera.quaternion));
+      const toTarget = pt.clone().sub(nozzle);
+      const flightTime = 0.28;
+      const streamVel = new THREE.Vector3(
+        toTarget.x / flightTime + (Math.random() - 0.5) * 0.6,
+        toTarget.y / flightTime + 0.5 * 4.5 * flightTime,
+        toTarget.z / flightTime + (Math.random() - 0.5) * 0.6
+      );
+      for (let i = 0; i < 3; i++) {
+        spawnParticle('water', nozzle.clone().lerp(pt, i * 0.14), streamVel.clone(), f, 0.22);
+      }
+      for (let i = 0; i < 3; i++) {
         spawnParticle(
           'water',
-          pt.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.45, 0.35, (Math.random() - 0.5) * 0.45)),
-          new THREE.Vector3((Math.random() - 0.5) * 1.5, -1.9, (Math.random() - 0.5) * 1.5),
+          pt.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.45, 0.25, (Math.random() - 0.5) * 0.45)),
+          new THREE.Vector3((Math.random() - 0.5) * 1.6, 0.8 + Math.random() * 0.8, (Math.random() - 0.5) * 1.6),
           f,
-          0.26
+          0.24
         );
       }
 
       for (const item of flammables) {
         if (item.floor === f && item.group.position.distanceTo(pt) < 1.65) {
           item.wetness = Math.min(1.0, item.wetness + 0.09);
+          if (item.isHanging && !item.fallen) {
+            item.swingVel += (Math.random() > 0.5 ? 1 : -1) * 1.8;
+          }
           if (item.burning || item.temp > 120) {
             item.temp -= 55;
+            audio.playSteamHiss();
             spawnParticle(
               'steam',
               pt.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.2, (Math.random() - 0.5) * 0.4)),
@@ -259,6 +283,7 @@ function applyToolAtPointer(e) {
 }
 
 renderer.domElement.addEventListener('pointerdown', (e) => {
+  audio.unlock();
   activePointers.add(e.pointerId);
   if (activePointers.size >= 2) {
     controls.enabled = true;
@@ -342,20 +367,31 @@ function stepSimulation(dt, elapsed) {
 
   const fireCentroids = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
 
-  // 2. Update Flammables, Gravity Collapse (#4), Boil-off Steam (#5), and Thermal/Flashover Physics
+  // 2. Update Flammables, Gravity Collapse (#4), Boil-off Steam (#5), and Thermal/O2/Backdraft Physics
   const fireCounts = stepThermalCompartments({
     dt,
     flammables,
     floorTemps,
     floorSoot,
+    floorO2,
     windows,
     getPos: (item) => item.group.position
   });
 
   for (const item of flammables) {
-    // Check supporting furniture collapse (#4)
+    // Check supporting furniture collapse (#4) or hanging strap failure
     if (item.supportedBy && !item.fallen && item.supportedBy.fuel < 0.32) {
       item.fallen = true;
+    }
+    if (item.isHanging && !item.fallen) {
+      if (item.fuel < 0.38 || (item.thermalChar ?? 0) > 0.65) {
+        item.fallen = true;
+      } else {
+        const draft = (floorTemps[item.floor] > 80 ? Math.sin(elapsed * 3.1) * 0.45 : 0);
+        item.swingVel = (item.swingVel + (-12.0 * item.swingAngle + draft) * dt) * Math.pow(0.96, dt * 60);
+        item.swingAngle += item.swingVel * dt;
+        item.group.rotation.z = item.swingAngle;
+      }
     }
     if (item.fallen && item.group.position.y > item.baseY + 0.02) {
       item.vy -= 9.8 * dt;
@@ -458,15 +494,30 @@ function stepSimulation(dt, elapsed) {
       floorTemps[f] = Math.max(22, floorTemps[f] - dt * 8);
     }
 
-    // Thermal glass shattering at 360°C + falling glass shards
+    // Thermal glass shattering at 360°C + falling glass shards + shatter audio
     const win = windows[f];
     if (!win.broken && floorTemps[f] > 360) {
       win.broken = true;
       win.glass.visible = false;
       floorTemps[f] -= 45; // sudden ventilation cooling
       spawnGlassShards(win.group.position, f);
+      audio.playGlassShatter();
+    }
+
+    // Descending ceiling smoke layer as soot accumulates
+    const sl = smokeLayers[f];
+    if (sl) {
+      const soot = floorSoot[f];
+      sl.mesh.visible = soot > 0.04;
+      sl.mat.opacity = Math.min(0.56, soot * 0.56);
+      const drop = soot * 0.72;
+      sl.mesh.scale.y = 1.0 + soot * 1.4;
+      sl.mesh.position.y = sl.baseY + FLOOR_HEIGHT - 0.32 - drop * 0.5;
     }
   }
+
+  const totalActiveFires = fireCounts[0] + fireCounts[1] + fireCounts[2];
+  audio.update(totalActiveFires, isPointerDown && tool === 'water');
 
   // Step tumbling glass shards
   for (let i = debrisShards.length - 1; i >= 0; i--) {
@@ -564,6 +615,7 @@ window.__firesim = {
       simTime: Number(simTime.toFixed(3)),
       floorTemps: floorTemps.map((t) => Number(t.toFixed(2))),
       floorSoot: floorSoot.map((s) => Number(s.toFixed(3))),
+      floorO2: floorO2.map((o) => Number(o.toFixed(3))),
       waterVolumes: waterFloors.map((w) => Number(w.getTotalVolume().toFixed(4))),
       activeFires: flammables.filter((f) => f.burning).length,
       particleCount: particles.length,

@@ -9,6 +9,7 @@ export function buildBuilding(scene) {
   const flammables = [];
   const floorSurfaces = [];
   const windows = [];
+  const smokeLayers = [];
 
   const woodTex = createWoodTextures();
   const plasterTex = createPlasterTextures();
@@ -86,6 +87,19 @@ export function buildBuilding(scene) {
     const winObj = createWindow(scene, -1.2, baseY + 1.45, -2.76, f);
     windows.push(winObj);
 
+    // Descending Ceiling Smoke Layer per floor
+    const smokeLayerMat = new THREE.MeshBasicMaterial({
+      color: 0x0f1117,
+      transparent: true,
+      opacity: 0.0,
+      depthWrite: false
+    });
+    const smokeLayer = new THREE.Mesh(new THREE.BoxGeometry(8.0, 0.55, 5.5), smokeLayerMat);
+    smokeLayer.position.set(0, baseY + FLOOR_HEIGHT - 0.35, 0);
+    smokeLayer.visible = false;
+    scene.add(smokeLayer);
+    smokeLayers.push({ floor: f, baseY, mesh: smokeLayer, mat: smokeLayerMat });
+
     floorSurfaces.push({ floor: f, uniforms: wallUniforms });
 
     // 4. Detailed Multi-Part Furniture & Supported Props (#4)
@@ -134,7 +148,7 @@ export function buildBuilding(scene) {
   roof.position.set(0, NUM_FLOORS * FLOOR_HEIGHT + 0.11, 0);
   scene.add(roof);
 
-  return { flammables, floorSurfaces, windows };
+  return { flammables, floorSurfaces, windows, smokeLayers };
 }
 
 function addStaircase(scene, x, baseY, zStart, height, lowerFloor) {
@@ -275,6 +289,9 @@ function makeFlammableNode(scene, group, opts) {
     wetness: 0.0,
     burning: false,
     supportedBy: opts.supportedBy ?? null,
+    isHanging: opts.isHanging ?? false,
+    swingAngle: 0,
+    swingVel: 0,
     fallen: false,
     vy: 0
   };
@@ -443,5 +460,5 @@ function createPunchingBag(scene, x, y, z, floor) {
   strap.position.y = 2.48;
 
   g.add(bag, topCap, botCap, strap);
-  return makeFlammableNode(scene, g, { name: 'Punching Bag', floor, color: 0x991b1b, roughness: 0.55 });
+  return makeFlammableNode(scene, g, { name: 'Punching Bag', floor, color: 0x991b1b, roughness: 0.55, isHanging: true });
 }
