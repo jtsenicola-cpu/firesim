@@ -187,6 +187,21 @@ test('small spills form localized puddles while heavy water floods the room', ()
   assert.ok(floodGrid.getDepthAt(2.5, -1.5) > 0.005, 'Excessive water should overflow puddles and flood the room');
 });
 
+test('deep lower-floor flood overflows upward into the upper floor', () => {
+  const f1 = new WaterGrid();
+  const f2 = new WaterGrid();
+
+  // Fill f1 cells beyond floorHeight (2.8m)
+  f1.h.fill(2.9);
+  for (let i = 0; i < 20; i++) {
+    f1.step(0.016, null, 22, f2, 2.8);
+    f2.step(0.016, null, 22, null, 2.8);
+  }
+
+  assert.ok(f2.getTotalVolume() > 10, 'Excess floodwater above 2.8m should rise onto Floor 2');
+});
+
+
 
 
 

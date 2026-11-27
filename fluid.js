@@ -108,10 +108,16 @@ export class FloorWaterSystem {
     return this.grid.getTotalVolume();
   }
 
-  step(dt, lowerFloorWater = null, floorTemp = 22) {
+  step(dt, lowerFloorWater = null, floorTemp = 22, upperFloorWater = null, floorHeight = 2.8) {
     this.waterUniforms.uTime.value += dt;
     this.waterUniforms.uHeat.value = Math.min(1.0, Math.max(0.0, (floorTemp - 80) / 300));
-    const totalVolume = this.grid.step(dt, lowerFloorWater ? lowerFloorWater.grid : null, floorTemp);
+    const totalVolume = this.grid.step(
+      dt,
+      lowerFloorWater ? lowerFloorWater.grid : null,
+      floorTemp,
+      upperFloorWater ? upperFloorWater.grid : null,
+      floorHeight
+    );
 
     const posAttr = this.geom.attributes.position;
     for (let i = 0; i < this.h.length; i++) {

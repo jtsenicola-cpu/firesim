@@ -368,10 +368,10 @@ let simTime = 0;
 function stepSimulation(dt, elapsed) {
   simTime += dt;
 
-  // 1. Step 3D shallow-water wave grids & stairwell cascades
-  waterFloors[2].step(dt, waterFloors[1], floorTemps[2]);
-  waterFloors[1].step(dt, waterFloors[0], floorTemps[1]);
-  waterFloors[0].step(dt, null, floorTemps[0]);
+  // 1. Step 3D shallow-water wave grids, stairwell cascades & upward floor-to-floor flood overflow
+  waterFloors[2].step(dt, waterFloors[1], floorTemps[2], null, FLOOR_HEIGHT);
+  waterFloors[1].step(dt, waterFloors[0], floorTemps[1], waterFloors[2], FLOOR_HEIGHT);
+  waterFloors[0].step(dt, null, floorTemps[0], waterFloors[1], FLOOR_HEIGHT);
 
   const fireCentroids = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
 

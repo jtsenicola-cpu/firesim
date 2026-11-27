@@ -51,7 +51,7 @@ export class WaterGrid {
         if (ix >= 0 && ix < this.nx && iz >= 0 && iz < this.nz) {
           const w = ((dx === 0 && dz === 0) ? 0.55 : 0.05625) / weightSum;
           const idx = iz * this.nx + ix;
-          this.h[idx] = Math.min(1.5, this.h[idx] + amount * w);
+          this.h[idx] = Math.min(4.0, this.h[idx] + amount * w);
         }
       }
     }
@@ -69,7 +69,7 @@ export class WaterGrid {
     return sum;
   }
 
-  step(dt, lowerGrid = null, floorTemp = 22) {
+  step(dt, lowerGrid = null, floorTemp = 22, upperGrid = null, floorHeight = 2.8) {
     if (dt <= 0) return this.getTotalVolume();
 
     const gravity = 9.8;
@@ -145,11 +145,18 @@ export class WaterGrid {
 
         let nextH = Math.max(0, prevH + net - evapRate);
 
-        // Stairwell opening drainage on right side (x > 2.3)
-        if (lowerGrid && x >= nx - 5 && z >= 4 && z <= 14 && nextH > 0.015) {
+        // Stairwell opening drainage on right side (x > 2.3) unless lower floor is already flooded to ceiling
+        if (lowerGrid && x >= nx - 5 && z >= 4 && z <= 14 && nextH > 0.015 && lowerGrid.getDepthAt(2.8, -0.4) < floorHeight * 0.95) {
           const spill = Math.min(nextH, nextH * 0.28 * dt * 10);
           nextH -= spill;
           lowerGrid.addWaterAt(2.8, -0.4, spill);
+        }
+
+        // Upward stairwell flood overflow when water rises above ceiling height
+        if (upperGrid && nextH > floorHeight) {
+          const overflow = nextH - floorHeight;
+          nextH = floorHeight;
+          upperGrid.addWaterAt(2.8, -0.4, overflow);
         }
 
         this.h[i] = nextH;
