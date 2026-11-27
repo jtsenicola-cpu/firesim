@@ -2,32 +2,65 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>3D Fire & Volumetric Liquid Simulator</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    body { background: #0b0f17; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
-    #canvas-container { width: 100vw; height: 100vh; touch-action: none; }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+    html, body { background: #0b0f17; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; width: 100%; height: 100dvh; touch-action: none; overscroll-behavior: none; }
+    #canvas-container { width: 100vw; height: 100dvh; touch-action: none; }
     #hud {
-      position: fixed; top: 12px; left: 12px; right: 12px;
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top));
+      left: max(12px, env(safe-area-inset-left));
+      right: max(12px, env(safe-area-inset-right));
       display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
       pointer-events: none; z-index: 10;
     }
     .panel {
-      background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(10px);
-      border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 10px;
+      background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 12px;
       padding: 8px 12px; pointer-events: auto; display: flex; gap: 8px; align-items: center;
       box-shadow: 0 8px 24px rgba(0,0,0,0.4);
     }
     button {
       background: #1e293b; color: #f8fafc; border: 1px solid #334155;
-      border-radius: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
+      border-radius: 8px; padding: 8px 12px; min-height: 38px; font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.08s;
+      white-space: nowrap;
     }
+    button:active { transform: scale(0.96); }
     button.active { background: #ea580c; border-color: #fb923c; }
     button.water.active { background: #0284c7; border-color: #38bdf8; }
     button.orbit.active { background: #6366f1; border-color: #818cf8; }
     #stats { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: auto; letter-spacing: 0.2px; }
+
+    @media (max-width: 640px) {
+      #hud {
+        flex-direction: column;
+        align-items: stretch;
+        bottom: max(12px, env(safe-area-inset-bottom));
+        justify-content: space-between;
+      }
+      #stats {
+        order: -1;
+        margin-left: 0;
+        justify-content: center;
+        padding: 6px 10px;
+        font-size: 11px;
+      }
+      #toolbar {
+        justify-content: space-between;
+        padding: 6px;
+        gap: 6px;
+        overflow-x: auto;
+      }
+      #toolbar button {
+        flex: 1 1 auto;
+        min-height: 44px;
+        padding: 8px 8px;
+        font-size: 12px;
+      }
+    }
   </style>
   <script type="importmap">
     {
@@ -40,9 +73,9 @@
 </head>
 <body>
   <div id="hud">
-    <div class="panel">
+    <div class="panel" id="toolbar">
       <button id="btn-ignite" class="active">🔥 Ignite</button>
-      <button id="btn-water" class="water">💧 Water Hose</button>
+      <button id="btn-water" class="water">💧 Hose</button>
       <button id="btn-orbit" class="orbit">👁️ Orbit</button>
       <button id="btn-drain">🌊 Drain</button>
       <button id="btn-reset">↺ Reset</button>

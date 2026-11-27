@@ -11,9 +11,11 @@ scene.background = new THREE.Color(0x0b0f17);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const isMobileViewport = () => window.matchMedia('(max-width: 640px)').matches;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileViewport() ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -23,6 +25,7 @@ container.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 4.1, 0);
 controls.enableDamping = true;
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 controls.enabled = false;
 
 function updateCameraFraming() {
@@ -35,6 +38,7 @@ function updateCameraFraming() {
 updateCameraFraming();
 window.addEventListener('resize', () => {
   updateCameraFraming();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileViewport() ? 1.5 : 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
