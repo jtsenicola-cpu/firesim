@@ -286,37 +286,46 @@ const clearPointer = (e) => {
 renderer.domElement.addEventListener('pointerup', clearPointer);
 renderer.domElement.addEventListener('pointercancel', clearPointer);
 
-// Safe 3D Thermal Warping, Slumping & Charring Vertex Deformation
+// Realistic 3-Phase Thermal De-Morphing: (1) Blister/Swell -> (2) Mid-span Sag & Buckle -> (3) Ash Collapse
 function deformBurningMesh(item, charAmount) {
   if (charAmount <= 0.005) return;
   if (item._lastDeform !== undefined && Math.abs(charAmount - item._lastDeform) < 0.004) return;
   item._lastDeform = charAmount;
 
+  const t = Math.min(1, Math.max(0, charAmount));
+  const swell = Math.sin(Math.min(1, t * 2.2) * Math.PI) * 0.045; // initial heat blistering
+  const soften = t * t * (3 - 2 * t); // smoothstep structural softening
+  const collapse = Math.max(0, (t - 0.35) / 0.65); // late-stage ash collapse
+
   item.group.traverse((child) => {
     if (!child.isMesh || !child.geometry.userData.origPos) return;
     const orig = child.geometry.userData.origPos;
     const pos = child.geometry.attributes.position.array;
-    const shrink = 1.0 - charAmount * 0.36;
-    const slump = 1.0 - charAmount * 0.48;
+    const shrinkXZ = 1.0 - collapse * 0.28 + swell;
+    const slumpY = 1.0 - soften * 0.22 - collapse * 0.34;
+
     for (let i = 0; i < pos.length; i += 3) {
       const ox = orig[i], oy = orig[i + 1], oz = orig[i + 2];
-      const heightBias = Math.max(0, oy);
-      const buckleX = Math.sin(ox * 5.5 + oy * 4.2 + item.floor) * 0.11 * charAmount * (0.4 + heightBias);
-      const buckleZ = Math.cos(oz * 5.5 + oy * 4.7) * 0.11 * charAmount * (0.4 + heightBias);
-      const sagY = Math.abs(Math.sin(ox * 3.1 + oz * 3.7)) * 0.08 * charAmount;
-      pos[i] = ox * shrink + buckleX;
-      pos[i + 1] = Math.max(0, oy * slump - sagY);
-      pos[i + 2] = oz * shrink + buckleZ;
+      const blister = Math.sin(ox * 8.0 + oy * 7.0 + oz * 6.0) * 0.028 * Math.min(1, t * 2.5);
+      // Mid-span sag: center buckles downward more than edges
+      const radialDist = Math.min(1.0, Math.sqrt(ox * ox + oz * oz));
+      const midSag = (1.0 - radialDist * 0.65) * soften * 0.09;
+      const buckleX = Math.sin(oy * 5.2 + oz * 3.8 + item.floor) * 0.065 * soften;
+      const buckleZ = Math.cos(oy * 4.8 + ox * 3.5) * 0.065 * soften;
+
+      pos[i] = ox * shrinkXZ + buckleX + blister;
+      pos[i + 1] = Math.max(0, oy * slumpY - midSag);
+      pos[i + 2] = oz * shrinkXZ + buckleZ + blister;
     }
     child.geometry.attributes.position.needsUpdate = true;
     child.geometry.computeVertexNormals();
   });
 
-  // Subtle structural list/tilt as material weakens from extreme heat
+  // Gradual structural lean as supports weaken
   if (!item.fallen) {
     const tiltDir = (item.group.position.x >= 0 ? 1 : -1);
-    item.group.rotation.z = tiltDir * charAmount * 0.12;
-    item.group.rotation.x = charAmount * 0.06;
+    item.group.rotation.z = tiltDir * collapse * 0.14;
+    item.group.rotation.x = collapse * 0.07;
   }
 }
 

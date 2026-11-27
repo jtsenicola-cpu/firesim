@@ -121,7 +121,8 @@ export function buildBuilding(scene) {
       });
       const crates = createDetailedCrates(scene, -1.8, baseY, -0.8, f);
       const stairLandingCrates = createDetailedCrates(scene, 2.65, baseY, 1.75, f, 'Attic Boxes', 0.7);
-      flammables.push(workbench, paintCans, crates, stairLandingCrates);
+      const punchingBag = createPunchingBag(scene, -0.25, baseY, 0.85, f);
+      flammables.push(workbench, paintCans, crates, stairLandingCrates, punchingBag);
     }
   }
 
@@ -246,7 +247,15 @@ function makeFlammableNode(scene, group, opts) {
 
   group.traverse((child) => {
     if (child.isMesh) {
-      child.geometry = child.geometry.clone();
+      if (child.geometry.type === 'BoxGeometry' && child.geometry.parameters) {
+        const p = child.geometry.parameters;
+        if ((p.widthSegments ?? 1) < 4) {
+          child.geometry.dispose();
+          child.geometry = new THREE.BoxGeometry(p.width, p.height, p.depth, 4, 4, 4);
+        }
+      } else {
+        child.geometry = child.geometry.clone();
+      }
       child.geometry.userData.origPos = child.geometry.attributes.position.array.slice();
       child.material = mat;
       child.castShadow = true;
@@ -413,4 +422,26 @@ function createDetailedCrates(scene, x, y, z, floor, label = 'Timber Crates', sc
   c3.position.set(0.1, 1.19, -0.05);
   g.add(c1, c2, c3);
   return makeFlammableNode(scene, g, { name: label, floor, color: 0xb45309, roughness: 0.82 });
+}
+
+function createPunchingBag(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+
+  // Heavy leather bag body (subdivided for realistic blistering/sagging)
+  const bag = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.25, 1.18, 14, 6));
+  bag.position.y = 1.48;
+
+  // Top & bottom reinforced caps
+  const topCap = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.1, 14, 2));
+  topCap.position.y = 2.11;
+  const botCap = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.2, 0.08, 14, 2));
+  botCap.position.y = 0.86;
+
+  // Hanging chain/strap up to ceiling
+  const strap = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.65, 8, 2));
+  strap.position.y = 2.48;
+
+  g.add(bag, topCap, botCap, strap);
+  return makeFlammableNode(scene, g, { name: 'Punching Bag', floor, color: 0x991b1b, roughness: 0.55 });
 }
