@@ -263,9 +263,9 @@ function makeFlammableNode(scene, group, opts) {
     if (child.isMesh) {
       if (child.geometry.type === 'BoxGeometry' && child.geometry.parameters) {
         const p = child.geometry.parameters;
-        if ((p.widthSegments ?? 1) < 4) {
+        if ((p.widthSegments ?? 1) < 8) {
           child.geometry.dispose();
-          child.geometry = new THREE.BoxGeometry(p.width, p.height, p.depth, 4, 4, 4);
+          child.geometry = new THREE.BoxGeometry(p.width, p.height, p.depth, 8, 8, 8);
         }
       } else {
         child.geometry = child.geometry.clone();

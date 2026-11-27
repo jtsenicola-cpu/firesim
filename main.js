@@ -311,16 +311,16 @@ const clearPointer = (e) => {
 renderer.domElement.addEventListener('pointerup', clearPointer);
 renderer.domElement.addEventListener('pointercancel', clearPointer);
 
-// Realistic 3-Phase Thermal De-Morphing: (1) Blister/Swell -> (2) Mid-span Sag & Buckle -> (3) Ash Collapse
-function deformBurningMesh(item, charAmount) {
-  if (charAmount <= 0.005) return;
-  if (item._lastDeform !== undefined && Math.abs(charAmount - item._lastDeform) < 0.004) return;
-  item._lastDeform = charAmount;
+// Smooth, Continuous 3-Phase Thermal De-Morphing with Live Heat Bubbling
+function deformBurningMesh(item, targetChar, elapsed, dt, isHot) {
+  item._smoothChar = (item._smoothChar ?? 0) + (targetChar - (item._smoothChar ?? 0)) * Math.min(1, dt * 5.0);
+  const t = Math.min(1, Math.max(0, item._smoothChar));
+  if (t <= 0.002 && !isHot) return;
 
-  const t = Math.min(1, Math.max(0, charAmount));
-  const swell = Math.sin(Math.min(1, t * 2.2) * Math.PI) * 0.045; // initial heat blistering
-  const soften = t * t * (3 - 2 * t); // smoothstep structural softening
-  const collapse = Math.max(0, (t - 0.35) / 0.65); // late-stage ash collapse
+  const swell = Math.sin(Math.min(1, t * 2.2) * Math.PI) * 0.045;
+  const soften = t * t * (3 - 2 * t);
+  const collapse = Math.max(0, (t - 0.35) / 0.65);
+  const liveBubble = isHot ? Math.min(1, 0.3 + t) : 0;
 
   item.group.traverse((child) => {
     if (!child.isMesh || !child.geometry.userData.origPos) return;
@@ -332,22 +332,23 @@ function deformBurningMesh(item, charAmount) {
     for (let i = 0; i < pos.length; i += 3) {
       const ox = orig[i], oy = orig[i + 1], oz = orig[i + 2];
       const blister = Math.sin(ox * 8.0 + oy * 7.0 + oz * 6.0) * 0.028 * Math.min(1, t * 2.5);
-      // Mid-span sag: center buckles downward more than edges
+      const pulse = liveBubble > 0
+        ? Math.sin(elapsed * 5.2 + ox * 6.5 + oy * 5.0 + oz * 6.5) * 0.011 * liveBubble
+        : 0;
       const radialDist = Math.min(1.0, Math.sqrt(ox * ox + oz * oz));
-      const midSag = (1.0 - radialDist * 0.65) * soften * 0.09;
+      const midSag = (1.0 - radialDist * 0.65) * soften * 0.095;
       const buckleX = Math.sin(oy * 5.2 + oz * 3.8 + item.floor) * 0.065 * soften;
       const buckleZ = Math.cos(oy * 4.8 + ox * 3.5) * 0.065 * soften;
 
-      pos[i] = ox * shrinkXZ + buckleX + blister;
-      pos[i + 1] = Math.max(0, oy * slumpY - midSag);
-      pos[i + 2] = oz * shrinkXZ + buckleZ + blister;
+      pos[i] = ox * shrinkXZ + buckleX + blister + pulse;
+      pos[i + 1] = Math.max(0, oy * slumpY - midSag + pulse * 0.6);
+      pos[i + 2] = oz * shrinkXZ + buckleZ + blister + pulse;
     }
     child.geometry.attributes.position.needsUpdate = true;
     child.geometry.computeVertexNormals();
   });
 
-  // Gradual structural lean as supports weaken
-  if (!item.fallen) {
+  if (!item.fallen && !item.isHanging) {
     const tiltDir = (item.group.position.x >= 0 ? 1 : -1);
     item.group.rotation.z = tiltDir * collapse * 0.14;
     item.group.rotation.x = collapse * 0.07;
@@ -471,8 +472,8 @@ function stepSimulation(dt, elapsed) {
       item.thermalChar = Math.min(1.0, (item.thermalChar ?? 0) + dt * 0.055 * heatRate);
     }
     const charAmount = Math.max(1.0 - item.fuel, item.thermalChar ?? 0);
-    if (charAmount > 0.01) {
-      deformBurningMesh(item, charAmount);
+    if (charAmount > 0.002 || effectiveTemp > 150) {
+      deformBurningMesh(item, charAmount, elapsed, dt, item.burning || effectiveTemp > 160);
     }
 
     item.uniforms.uWetness.value = item.wetness;
