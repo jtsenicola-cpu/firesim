@@ -149,4 +149,36 @@ export class FireAudioEngine {
       osc.stop(now + i * 0.04 + 0.15);
     }
   }
+
+  playImpactCrunch() {
+    if (!this.initialized || !this.ctx || this.muted || !this.noiseBuffer) return;
+    const now = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 650;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.32, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    src.connect(lp).connect(g).connect(this.ctx.destination);
+    src.start(now);
+    src.stop(now + 0.3);
+  }
+
+  playCollapseRumble() {
+    if (!this.initialized || !this.ctx || this.muted || !this.noiseBuffer) return;
+    const now = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 260;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.45, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+    src.connect(lp).connect(g).connect(this.ctx.destination);
+    src.start(now);
+    src.stop(now + 1.15);
+  }
 }

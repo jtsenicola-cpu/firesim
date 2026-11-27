@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WaterGrid } from '../fluid-grid.js';
 import { stepThermalCompartments, FLASHOVER_TEMP } from '../thermal.js';
+import { damageBlock, stepStructuralIntegrity } from '../destruction.js';
 
 function assertFiniteGrid(grid) {
   for (let i = 0; i < grid.h.length; i++) {
@@ -200,6 +201,33 @@ test('deep lower-floor flood overflows upward into the upper floor', () => {
 
   assert.ok(f2.getTotalVolume() > 10, 'Excess floodwater above 2.8m should rise onto Floor 2');
 });
+
+test('destroying load-bearing walls on lower floor collapses upper floors', () => {
+  const blocks = [
+    { id: 0, floor: 0, isLoadBearing: true, integrity: 1.0, destroyed: false },
+    { id: 1, floor: 0, isLoadBearing: true, integrity: 1.0, destroyed: false },
+    { id: 2, floor: 0, isLoadBearing: true, integrity: 1.0, destroyed: false },
+    { id: 3, floor: 1, isLoadBearing: true, integrity: 1.0, destroyed: false },
+    { id: 4, floor: 2, isLoadBearing: true, integrity: 1.0, destroyed: false }
+  ];
+  const collapsed = [];
+  damageBlock(blocks[0], 1.0);
+  damageBlock(blocks[1], 1.0); // 1/3 = 0.33 < 0.42 threshold
+
+  const result = stepStructuralIntegrity({
+    dt: 0.016,
+    blocks,
+    floorTemps: [22, 22, 22],
+    numFloors: 3,
+    onFloorCollapse: (f) => collapsed.push(f)
+  });
+
+  assert.equal(result[0], true, 'Floor 0 should trigger structural collapse');
+  assert.deepEqual(collapsed, [0]);
+  assert.equal(blocks[3].destroyed, true, 'Floor 1 support should collapse');
+  assert.equal(blocks[4].destroyed, true, 'Floor 2 support should collapse');
+});
+
 
 
 

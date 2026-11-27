@@ -11,6 +11,7 @@ import { FloorWaterSystem } from './fluid.js';
 import { createSpriteGlowTexture } from './textures.js';
 import { createFlameMaterial, createSmokeMaterial } from './shaders.js';
 import { stepThermalCompartments } from './thermal.js';
+import { damageBlock, stepStructuralIntegrity } from './destruction.js';
 import { FireAudioEngine } from './audio.js';
 
 const container = document.getElementById('canvas-container');
@@ -159,7 +160,7 @@ const fireLights = [0, 1, 2].map((f) => {
   return pl;
 });
 
-const { flammables, floorSurfaces, windows, smokeLayers } = buildBuilding(scene);
+const { flammables, floorSurfaces, windows, smokeLayers, structuralBlocks } = buildBuilding(scene);
 const waterFloors = [0, 1, 2].map((f) => new FloorWaterSystem(scene, f, f * FLOOR_HEIGHT));
 const floorTemps = [22, 22, 22];
 const floorSoot = [0, 0, 0];
@@ -173,6 +174,8 @@ const billboardGeom = new THREE.PlaneGeometry(1, 1);
 
 const particles = [];
 const debrisShards = [];
+const rubbleChunks = [];
+const rubbleGeom = new THREE.BoxGeometry(0.28, 0.22, 0.24);
 const shardGeom = new THREE.PlaneGeometry(0.16, 0.16);
 const shardMat = new THREE.MeshPhysicalMaterial({
   color: 0xe0f2fe,
@@ -182,6 +185,30 @@ const shardMat = new THREE.MeshPhysicalMaterial({
   metalness: 0.15,
   side: THREE.DoubleSide
 });
+
+function spawnRubbleChunks(origin, colorHex = 0x94a3b8, count = 8, spread = 1.6) {
+  for (let i = 0; i < count; i++) {
+    if (rubbleChunks.length > 140) break;
+    const mat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.9, metalness: 0.05 });
+    const mesh = new THREE.Mesh(rubbleGeom, mat);
+    mesh.position.copy(origin).add(new THREE.Vector3(
+      (Math.random() - 0.5) * spread,
+      (Math.random() - 0.5) * 1.1,
+      (Math.random() - 0.5) * spread
+    ));
+    mesh.scale.set(0.5 + Math.random() * 1.1, 0.4 + Math.random() * 0.9, 0.5 + Math.random() * 1.1);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.noRaycast = true;
+    scene.add(mesh);
+    rubbleChunks.push({
+      mesh,
+      vel: new THREE.Vector3((Math.random() - 0.5) * 4.2, 0.8 + Math.random() * 2.5, (Math.random() - 0.5) * 4.2),
+      spin: new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8),
+      life: 1.0
+    });
+  }
+}
 
 function spawnGlassShards(origin, floor) {
   const floorY = floor * FLOOR_HEIGHT + 0.02;
@@ -255,11 +282,13 @@ function setTool(next) {
   controls.enabled = tool === 'orbit';
   document.getElementById('btn-ignite').classList.toggle('active', tool === 'ignite');
   document.getElementById('btn-water').classList.toggle('active', tool === 'water');
+  document.getElementById('btn-breach').classList.toggle('active', tool === 'breach');
   document.getElementById('btn-orbit').classList.toggle('active', tool === 'orbit');
 }
 
 document.getElementById('btn-ignite').onclick = () => setTool('ignite');
 document.getElementById('btn-water').onclick = () => setTool('water');
+document.getElementById('btn-breach').onclick = () => setTool('breach');
 document.getElementById('btn-orbit').onclick = () => setTool('orbit');
 document.getElementById('btn-drain').onclick = () => waterFloors.forEach((w) => w.drain());
 document.getElementById('btn-reset').onclick = () => location.reload();
@@ -281,6 +310,22 @@ function applyToolAtPointer(clientX, clientY, dtScale = 1.0) {
       if (raycaster.intersectObject(item.group, true).length > 0 && item.wetness < 0.55) {
         item.burning = true;
         item.temp = Math.max(item.temp, 360);
+      }
+    }
+  } else if (tool === 'breach') {
+    const hits = raycaster.intersectObjects(scene.children, true)
+      .filter((h) => !h.object.userData.noRaycast && h.object.userData.structuralBlock);
+    if (hits.length > 0) {
+      const hit = hits[0];
+      const block = hit.object.userData.structuralBlock;
+      const fractured = damageBlock(block, 0.35 * dtScale);
+      if (fractured) {
+        block.mesh.visible = false;
+        spawnRubbleChunks(hit.point, block.color, 10, 1.4);
+        for (let i = 0; i < 4; i++) {
+          spawnParticle('steam', hit.point.clone(), new THREE.Vector3((Math.random() - 0.5) * 1.4, 0.8 + Math.random(), (Math.random() - 0.5) * 1.4), block.floor, 0.9);
+        }
+        audio.playImpactCrunch();
       }
     }
   } else if (tool === 'water') {
@@ -623,6 +668,46 @@ function stepSimulation(dt, elapsed) {
     }
   }
 
+  // 2b. Structural Integrity, Thermal Weakening & Load-Bearing Collapse (Red Faction style)
+  stepStructuralIntegrity({
+    dt,
+    blocks: structuralBlocks,
+    floorTemps,
+    numFloors: NUM_FLOORS,
+    onBlockDestroyed: (block) => {
+      block.mesh.visible = false;
+      spawnRubbleChunks(block.mesh.position, block.color, 9, 1.8);
+      spawnParticle('steam', block.mesh.position.clone(), new THREE.Vector3((Math.random() - 0.5) * 1.5, 1.0, (Math.random() - 0.5) * 1.5), block.floor, 1.1);
+    },
+    onFloorCollapse: (f) => {
+      audio.playCollapseRumble();
+      for (const item of flammables) {
+        if (item.floor >= f) item.fallen = true;
+      }
+    }
+  });
+
+  // Step tumbling rubble chunks
+  for (let i = rubbleChunks.length - 1; i >= 0; i--) {
+    const r = rubbleChunks[i];
+    r.life -= dt * 0.14;
+    r.vel.y -= 9.8 * dt;
+    r.mesh.position.addScaledVector(r.vel, dt);
+    r.mesh.rotation.x += r.spin.x * dt;
+    r.mesh.rotation.y += r.spin.y * dt;
+    r.mesh.rotation.z += r.spin.z * dt;
+    if (r.mesh.position.y <= -0.08) {
+      r.mesh.position.y = -0.08;
+      r.vel.set(r.vel.x * 0.55, Math.abs(r.vel.y) * 0.25, r.vel.z * 0.55);
+      r.spin.multiplyScalar(0.5);
+    }
+    if (r.life <= 0) {
+      scene.remove(r.mesh);
+      r.mesh.material.dispose();
+      rubbleChunks.splice(i, 1);
+    }
+  }
+
   for (const surf of floorSurfaces) {
     surf.uniforms.uSootLevel.value = floorSoot[surf.floor];
     surf.uniforms.uWetness.value = waterFloors[surf.floor].mesh.visible ? 0.55 : 0.0;
@@ -711,6 +796,8 @@ window.__firesim = {
       floorO2: floorO2.map((o) => Number(o.toFixed(3))),
       waterVolumes: waterFloors.map((w) => Number(w.getTotalVolume().toFixed(4))),
       activeFires: flammables.filter((f) => f.burning).length,
+      intactBlocks: structuralBlocks.filter((b) => !b.destroyed).length,
+      totalBlocks: structuralBlocks.length,
       particleCount: particles.length,
       windowsBroken: windows.map((w) => w.broken),
       flammables: flammables.map((item, index) => ({
@@ -750,6 +837,16 @@ window.__firesim = {
   },
   drain() {
     waterFloors.forEach((w) => w.drain());
+  },
+  breachBlock(index, amount = 1.0) {
+    const b = structuralBlocks[index];
+    if (!b) return false;
+    const fractured = damageBlock(b, amount);
+    if (fractured) {
+      b.mesh.visible = false;
+      spawnRubbleChunks(b.mesh.position, b.color, 10, 1.5);
+    }
+    return fractured;
   },
   step(dt = 0.016, steps = 1) {
     for (let i = 0; i < steps; i++) {

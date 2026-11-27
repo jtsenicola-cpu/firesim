@@ -10,6 +10,8 @@ export function buildBuilding(scene) {
   const floorSurfaces = [];
   const windows = [];
   const smokeLayers = [];
+  const structuralBlocks = [];
+  let blockId = 0;
 
   const woodTex = createWoodTextures();
   const plasterTex = createPlasterTextures();
@@ -34,12 +36,22 @@ export function buildBuilding(scene) {
     mainSlab.castShadow = true;
     mainSlab.receiveShadow = true;
     scene.add(mainSlab);
+    if (f > 0) {
+      const slabBlock = { id: blockId++, floor: f, isLoadBearing: false, integrity: 1.0, destroyed: false, mesh: mainSlab, color: 0x7c5332 };
+      mainSlab.userData.structuralBlock = slabBlock;
+      structuralBlocks.push(slabBlock);
+    }
 
     const frontLanding = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, 2.3), slabMat);
     frontLanding.position.set(3.1, baseY - 0.09, 1.75);
     frontLanding.castShadow = true;
     frontLanding.receiveShadow = true;
     scene.add(frontLanding);
+    if (f > 0) {
+      const landBlock = { id: blockId++, floor: f, isLoadBearing: false, integrity: 1.0, destroyed: false, mesh: frontLanding, color: 0x7c5332 };
+      frontLanding.userData.structuralBlock = landBlock;
+      structuralBlocks.push(landBlock);
+    }
 
     if (f === 0) {
       // Solid ground under stairwell
@@ -67,17 +79,39 @@ export function buildBuilding(scene) {
       ceilingHeight: FLOOR_HEIGHT
     });
 
-    const backWall = new THREE.Mesh(new THREE.BoxGeometry(8.2, FLOOR_HEIGHT, 0.16), wallMat);
-    backWall.position.set(0, baseY + FLOOR_HEIGHT / 2, -2.85);
-    backWall.castShadow = true;
-    backWall.receiveShadow = true;
-    scene.add(backWall);
+    // Modular destructible back wall panels (4 load-bearing bays) & right wall panels (3 bays)
+    const backSegments = [
+      { x: -3.075, w: 2.05 },
+      { x: -1.025, w: 2.05 },
+      { x: 1.025, w: 2.05 },
+      { x: 3.075, w: 2.05 }
+    ];
+    for (const seg of backSegments) {
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(seg.w - 0.03, FLOOR_HEIGHT, 0.16), wallMat);
+      panel.position.set(seg.x, baseY + FLOOR_HEIGHT / 2, -2.85);
+      panel.castShadow = true;
+      panel.receiveShadow = true;
+      scene.add(panel);
+      const b = { id: blockId++, floor: f, isLoadBearing: true, integrity: 1.0, destroyed: false, mesh: panel, color: 0xd1d6de };
+      panel.userData.structuralBlock = b;
+      structuralBlocks.push(b);
+    }
 
-    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.16, FLOOR_HEIGHT, 5.8), wallMat);
-    rightWall.position.set(4.05, baseY + FLOOR_HEIGHT / 2, 0);
-    rightWall.castShadow = true;
-    rightWall.receiveShadow = true;
-    scene.add(rightWall);
+    const rightSegments = [
+      { z: -1.93, d: 1.93 },
+      { z: 0.0, d: 1.93 },
+      { z: 1.93, d: 1.93 }
+    ];
+    for (const seg of rightSegments) {
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(0.16, FLOOR_HEIGHT, seg.d - 0.03), wallMat);
+      panel.position.set(4.05, baseY + FLOOR_HEIGHT / 2, seg.z);
+      panel.castShadow = true;
+      panel.receiveShadow = true;
+      scene.add(panel);
+      const b = { id: blockId++, floor: f, isLoadBearing: true, integrity: 1.0, destroyed: false, mesh: panel, color: 0xd1d6de };
+      panel.userData.structuralBlock = b;
+      structuralBlocks.push(b);
+    }
 
     // Baseboard trim
     const trimMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
@@ -153,7 +187,7 @@ export function buildBuilding(scene) {
   roof.position.set(0, NUM_FLOORS * FLOOR_HEIGHT + 0.11, 0);
   scene.add(roof);
 
-  return { flammables, floorSurfaces, windows, smokeLayers };
+  return { flammables, floorSurfaces, windows, smokeLayers, structuralBlocks };
 }
 
 function addStaircase(scene, x, baseY, zStart, height, lowerFloor) {
