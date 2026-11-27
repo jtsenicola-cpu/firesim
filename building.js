@@ -96,6 +96,7 @@ export function buildBuilding(scene) {
     });
     const smokeLayer = new THREE.Mesh(new THREE.BoxGeometry(8.0, 0.55, 5.5), smokeLayerMat);
     smokeLayer.position.set(0, baseY + FLOOR_HEIGHT - 0.35, 0);
+    smokeLayer.userData.noRaycast = true;
     smokeLayer.visible = false;
     scene.add(smokeLayer);
     smokeLayers.push({ floor: f, baseY, mesh: smokeLayer, mat: smokeLayerMat });

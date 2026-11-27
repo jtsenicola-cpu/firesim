@@ -164,6 +164,7 @@ function spawnParticle(type, pos, vel, floor, scale = 0.55, intensity = 1.0) {
     const mesh = new THREE.Mesh(billboardGeom, mat);
     mesh.position.copy(pos);
     mesh.quaternion.copy(camera.quaternion);
+    mesh.userData.noRaycast = true;
     if (type === 'fire') {
       mesh.scale.set(scale * 0.82, scale * 1.65, 1);
     } else {
@@ -185,6 +186,7 @@ function spawnParticle(type, pos, vel, floor, scale = 0.55, intensity = 1.0) {
   const sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
   sprite.scale.setScalar(scale);
+  sprite.userData.noRaycast = true;
   scene.add(sprite);
   particles.push({ type, sprite, vel, floor, life: 1.0, baseScale: scale, seed, isShader: false });
 }
@@ -192,6 +194,8 @@ function spawnParticle(type, pos, vel, floor, scale = 0.55, intensity = 1.0) {
 // Tool State & Multi-Touch Input
 let tool = 'ignite';
 let isPointerDown = false;
+let lastPointerClientX = 0;
+let lastPointerClientY = 0;
 const activePointers = new Set();
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -215,11 +219,11 @@ document.getElementById('btn-audio').onclick = () => {
   document.getElementById('btn-audio').textContent = muted ? '🔇' : '🔊';
 };
 
-function applyToolAtPointer(e) {
+function applyToolAtPointer(clientX, clientY, dtScale = 1.0) {
   if (tool === 'orbit') return;
   const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
 
   if (tool === 'ignite') {
@@ -230,11 +234,12 @@ function applyToolAtPointer(e) {
       }
     }
   } else if (tool === 'water') {
-    const hits = raycaster.intersectObjects(scene.children, true);
+    const hits = raycaster.intersectObjects(scene.children, true)
+      .filter((h) => !h.object.userData.noRaycast);
     if (hits.length > 0) {
       const pt = hits[0].point;
       const f = Math.max(0, Math.min(2, Math.floor(pt.y / FLOOR_HEIGHT)));
-      waterFloors[f].addWaterAt(pt.x, pt.z, 0.048);
+      waterFloors[f].addWaterAt(pt.x, pt.z, 0.055 * dtScale);
 
       // Arcing water hose stream from nozzle toward target point
       const nozzle = camera.position.clone().add(new THREE.Vector3(0.45, -0.55, 0).applyQuaternion(camera.quaternion));
@@ -285,24 +290,27 @@ function applyToolAtPointer(e) {
 renderer.domElement.addEventListener('pointerdown', (e) => {
   audio.unlock();
   activePointers.add(e.pointerId);
+  lastPointerClientX = e.clientX;
+  lastPointerClientY = e.clientY;
+  try { renderer.domElement.setPointerCapture(e.pointerId); } catch {}
   if (activePointers.size >= 2) {
     controls.enabled = true;
     isPointerDown = false;
   } else {
     controls.enabled = (tool === 'orbit');
     isPointerDown = true;
-    applyToolAtPointer(e);
+    applyToolAtPointer(lastPointerClientX, lastPointerClientY, 1.0);
   }
 });
 
 renderer.domElement.addEventListener('pointermove', (e) => {
-  if (activePointers.size === 1 && isPointerDown) {
-    applyToolAtPointer(e);
-  }
+  lastPointerClientX = e.clientX;
+  lastPointerClientY = e.clientY;
 });
 
 const clearPointer = (e) => {
   activePointers.delete(e.pointerId);
+  try { renderer.domElement.releasePointerCapture(e.pointerId); } catch {}
   if (activePointers.size === 0) {
     isPointerDown = false;
     controls.enabled = (tool === 'orbit');
@@ -310,6 +318,11 @@ const clearPointer = (e) => {
 };
 renderer.domElement.addEventListener('pointerup', clearPointer);
 renderer.domElement.addEventListener('pointercancel', clearPointer);
+window.addEventListener('blur', () => {
+  activePointers.clear();
+  isPointerDown = false;
+  controls.enabled = (tool === 'orbit');
+});
 
 // Smooth, Continuous 3-Phase Thermal De-Morphing in object-floor space (no negative-oy clamping bug)
 function deformBurningMesh(item, targetChar, elapsed, dt, isHot) {
@@ -367,6 +380,11 @@ let simTime = 0;
 
 function stepSimulation(dt, elapsed) {
   simTime += dt;
+
+  // Continuous held-pointer spraying / ignition
+  if (isPointerDown && activePointers.size === 1 && tool !== 'orbit') {
+    applyToolAtPointer(lastPointerClientX, lastPointerClientY, Math.min(2.0, dt * 60));
+  }
 
   // 1. Step 3D shallow-water wave grids, stairwell cascades & upward floor-to-floor flood overflow
   waterFloors[2].step(dt, waterFloors[1], floorTemps[2], null, FLOOR_HEIGHT);
