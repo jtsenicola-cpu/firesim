@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>3D Fire & Volumetric Liquid Simulator</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { background: #0f131a; color: #e2e8f0; font-family: system-ui, sans-serif; overflow: hidden; }
+    #canvas-container { width: 100vw; height: 100vh; touch-action: none; }
+    #hud {
+      position: fixed; top: 12px; left: 12px; right: 12px;
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      pointer-events: none; z-index: 10;
+    }
+    .panel {
+      background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(8px);
+      border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 10px;
+      padding: 8px 12px; pointer-events: auto; display: flex; gap: 8px; align-items: center;
+    }
+    button {
+      background: #1e293b; color: #f8fafc; border: 1px solid #334155;
+      border-radius: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    button.active { background: #ea580c; border-color: #fb923c; }
+    button.water.active { background: #0284c7; border-color: #38bdf8; }
+    #stats { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: auto; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="hud">
+    <div class="panel">
+      <button id="btn-ignite" class="active">🔥 Ignite</button>
+      <button id="btn-water" class="water">💧 Water Hose</button>
+      <button id="btn-orbit">👁️ Orbit</button>
+      <button id="btn-drain">🌊 Drain</button>
+      <button id="btn-reset">↺ Reset</button>
+    </div>
+    <div class="panel" id="stats">F1: 22°C | F2: 22°C | F3: 22°C</div>
+  </div>
+  <div id="canvas-container"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
