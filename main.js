@@ -212,11 +212,10 @@ function deformBurningMesh(item, burnProgress) {
 }
 
 const clock = new THREE.Clock();
+let simTime = 0;
 
-function animate() {
-  requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const elapsed = clock.elapsedTime;
+function stepSimulation(dt, elapsed) {
+  simTime += dt;
 
   // 1. Step 3D shallow-water wave grids & stairwell cascades
   waterFloors[2].step(dt, waterFloors[1], floorTemps[2]);
@@ -361,9 +360,90 @@ function animate() {
 
   document.getElementById('stats').textContent =
     `F1: ${Math.round(floorTemps[0])}°C | F2: ${Math.round(floorTemps[1])}°C | F3: ${Math.round(floorTemps[2])}°C`;
+}
 
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  stepSimulation(dt, clock.elapsedTime);
   controls.update();
   renderer.render(scene, camera);
 }
+
+window.__firesim = {
+  getMetrics() {
+    return {
+      simTime: Number(simTime.toFixed(3)),
+      floorTemps: floorTemps.map((t) => Number(t.toFixed(2))),
+      floorSoot: floorSoot.map((s) => Number(s.toFixed(3))),
+      waterVolumes: waterFloors.map((w) => Number(w.getTotalVolume().toFixed(4))),
+      activeFires: flammables.filter((f) => f.burning).length,
+      particleCount: particles.length,
+      windowsBroken: windows.map((w) => w.broken),
+      flammables: flammables.map((item, index) => ({
+        index,
+        name: item.name,
+        floor: item.floor,
+        burning: item.burning,
+        temp: Number(item.temp.toFixed(2)),
+        fuel: Number(item.fuel.toFixed(3)),
+        wetness: Number(item.wetness.toFixed(3)),
+        fallen: Boolean(item.fallen)
+      }))
+    };
+  },
+  ignite(indexOrName) {
+    const item = typeof indexOrName === 'number'
+      ? flammables[indexOrName]
+      : flammables.find((f) => f.name.toLowerCase() === String(indexOrName).toLowerCase());
+    if (!item || item.wetness >= 0.55) return false;
+    item.burning = true;
+    item.temp = Math.max(item.temp, 360);
+    return true;
+  },
+  sprayWater(floor, x, z, amount = 0.05) {
+    const f = Math.max(0, Math.min(NUM_FLOORS - 1, floor));
+    waterFloors[f].addWaterAt(x, z, amount);
+    const pt = new THREE.Vector3(x, f * FLOOR_HEIGHT + 0.2, z);
+    for (const item of flammables) {
+      if (item.floor === f && item.group.position.distanceTo(pt) < 1.65) {
+        item.wetness = Math.min(1.0, item.wetness + 0.09);
+        if (item.burning || item.temp > 120) {
+          item.temp -= 55;
+          if (item.temp < 145) item.burning = false;
+        }
+      }
+    }
+  },
+  drain() {
+    waterFloors.forEach((w) => w.drain());
+  },
+  step(dt = 0.016, steps = 1) {
+    for (let i = 0; i < steps; i++) {
+      stepSimulation(dt, simTime + dt);
+    }
+    controls.update();
+    renderer.render(scene, camera);
+    return this.getMetrics();
+  },
+  setCameraPreset(name = 'default') {
+    if (name === 'f1-closeup') {
+      camera.position.set(-4.6, 2.1, 6.8);
+      controls.target.set(-1.2, 1.0, 0.6);
+    } else if (name === 'stairwell') {
+      camera.position.set(5.2, 5.2, 8.2);
+      controls.target.set(2.5, 3.8, -0.2);
+    } else {
+      updateCameraFraming();
+      controls.target.set(0, 4.1, 0);
+    }
+    camera.updateProjectionMatrix();
+    controls.update();
+    renderer.render(scene, camera);
+  },
+  reset() {
+    location.reload();
+  }
+};
 
 animate();
