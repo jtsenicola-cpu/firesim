@@ -187,6 +187,9 @@ const shardMat = new THREE.MeshPhysicalMaterial({
 });
 
 function getSupportingFloorY(x, y, z) {
+  // Outside the building footprint, only the stage ground (-0.18) supports falling debris
+  if (x < -4.1 || x > 4.1 || z < -2.9 || z > 2.9) return -0.18;
+
   // Check upper floors from top down to see if an intact slab supports (x, z) below y
   for (let f = NUM_FLOORS - 1; f >= 1; f--) {
     const slabY = f * FLOOR_HEIGHT;
@@ -195,13 +198,11 @@ function getSupportingFloorY(x, y, z) {
     if (x > 2.1 && z < 0.6) continue;
     const isLanding = x > 2.1 && z >= 0.6;
     const slab = structuralBlocks.find((b) =>
-      b.isSlab && b.floor === f && (isLanding ? b.width < 3.0 : b.width > 3.0)
+      b.isSlab && !b.isRoof && b.floor === f && (isLanding ? b.width < 3.0 : b.width > 3.0)
     );
     if (slab && !slab.destroyed) return slabY;
   }
-  // Ground floor (y = 0) if inside building footprint, else stage ground (-0.18)
-  if (x >= -4.1 && x <= 4.1 && z >= -2.9 && z <= 2.9) return 0.0;
-  return -0.18;
+  return 0.0;
 }
 
 function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
@@ -251,8 +252,30 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
         rem.spin.set((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
       }
     }
-    // Never leave floating roof ledges; for floor slabs, only leave ledges directly on intact lower walls
-    if (!block.isRoof) {
+    // Never leave floating roof ledges; when roof collapses, break the whole roof into 4 large falling roof-slab sections
+    if (block.isRoof) {
+      const roofMat = new THREE.MeshStandardMaterial({ color: block.color, roughness: 0.9 });
+      const qw = w * 0.48;
+      const qd = d * 0.48;
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const section = new THREE.Mesh(new THREE.BoxGeometry(qw, h, qd), roofMat);
+          section.position.set(center.x + sx * (w * 0.25), center.y, center.z + sz * (d * 0.25));
+          section.castShadow = true;
+          section.receiveShadow = true;
+          section.userData.noRaycast = true;
+          scene.add(section);
+          remnantMeshes.push({
+            mesh: section,
+            floor: block.floor,
+            halfH: h / 2 + 0.08,
+            vel: new THREE.Vector3(sx * (0.4 + Math.random() * 0.6), -0.5, sz * (0.4 + Math.random() * 0.6)),
+            spin: new THREE.Vector3((Math.random() - 0.5) * 0.9, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.9),
+            settled: false
+          });
+        }
+      }
+    } else {
       const intactBack = structuralBlocks.some((b) => b.isLoadBearing && b.floor === block.floor - 1 && !b.destroyed && b.depth < 0.5);
       const intactRight = structuralBlocks.some((b) => b.isLoadBearing && b.floor === block.floor - 1 && !b.destroyed && b.width < 0.5);
       const ledgeMat = new THREE.MeshStandardMaterial({ color: block.color, roughness: 0.85 });
