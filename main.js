@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildBuilding, FLOOR_HEIGHT, NUM_FLOORS } from './building.js';
 import { FloorWaterSystem } from './fluid.js';
 import { createSpriteGlowTexture } from './textures.js';
+import { stepThermalCompartments } from './thermal.js';
 
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
@@ -67,29 +68,36 @@ const waterFloors = [0, 1, 2].map((f) => new FloorWaterSystem(scene, f, f * FLOO
 const floorTemps = [22, 22, 22];
 const floorSoot = [0, 0, 0];
 
-// Soft Radial Sprite Particles (Fire, Smoke, Water, Steam, Boil-off Froth)
-const fireTex = createSpriteGlowTexture('rgba(255,245,180,1)', 'rgba(255,90,10,0.75)', 'rgba(0,0,0,0)');
-const smokeTex = createSpriteGlowTexture('rgba(24,24,27,0.85)', 'rgba(39,39,42,0.45)', 'rgba(0,0,0,0)');
+// Soft Radial Sprite Particles (Fire, Smoke, Water, Steam, Ember Sparks)
+const fireTex = createSpriteGlowTexture('rgba(255,248,195,1)', 'rgba(255,85,10,0.82)', 'rgba(0,0,0,0)');
+const smokeTex = createSpriteGlowTexture('rgba(20,20,24,0.88)', 'rgba(39,39,42,0.42)', 'rgba(0,0,0,0)');
 const steamTex = createSpriteGlowTexture('rgba(255,255,255,0.9)', 'rgba(226,232,240,0.45)', 'rgba(0,0,0,0)');
 const waterTex = createSpriteGlowTexture('rgba(186,230,253,0.95)', 'rgba(56,189,248,0.65)', 'rgba(0,0,0,0)');
+const sparkTex = createSpriteGlowTexture('rgba(255,255,220,1)', 'rgba(255,155,30,0.9)', 'rgba(0,0,0,0)');
 
 const particles = [];
 
 function spawnParticle(type, pos, vel, floor, scale = 0.55) {
-  if (particles.length > 520) return;
-  const texMap = { fire: fireTex, smoke: smokeTex, steam: steamTex, water: waterTex };
+  if (particles.length > 560) return;
+  const texMap = { fire: fireTex, smoke: smokeTex, steam: steamTex, water: waterTex, spark: sparkTex };
+  const isAdditive = type === 'fire' || type === 'spark';
   const mat = new THREE.SpriteMaterial({
     map: texMap[type],
     transparent: true,
-    opacity: type === 'smoke' ? 0.72 : 0.9,
-    blending: type === 'fire' ? THREE.AdditiveBlending : THREE.NormalBlending,
-    depthWrite: false
+    opacity: type === 'smoke' ? 0.72 : 0.92,
+    blending: isAdditive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    depthWrite: false,
+    rotation: type === 'fire' ? (Math.random() - 0.5) * 0.45 : 0
   });
   const sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
-  sprite.scale.setScalar(scale);
+  if (type === 'fire') {
+    sprite.scale.set(scale * 0.68, scale * 1.48, 1);
+  } else {
+    sprite.scale.setScalar(scale);
+  }
   scene.add(sprite);
-  particles.push({ type, sprite, vel, floor, life: 1.0, baseScale: scale });
+  particles.push({ type, sprite, vel, floor, life: 1.0, baseScale: scale, seed: Math.random() * 6.283 });
 }
 
 // Tool State & Multi-Touch Input
@@ -223,9 +231,17 @@ function stepSimulation(dt, elapsed) {
   waterFloors[0].step(dt, null, floorTemps[0]);
 
   const fireCentroids = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-  const fireCounts = [0, 0, 0];
 
-  // 2. Update Flammables, Gravity Collapse (#4), Boil-off Steam (#5), and Shaders (#3)
+  // 2. Update Flammables, Gravity Collapse (#4), Boil-off Steam (#5), and Thermal/Flashover Physics
+  const fireCounts = stepThermalCompartments({
+    dt,
+    flammables,
+    floorTemps,
+    floorSoot,
+    windows,
+    getPos: (item) => item.group.position
+  });
+
   for (const item of flammables) {
     // Check supporting furniture collapse (#4)
     if (item.supportedBy && !item.fallen && item.supportedBy.fuel < 0.32) {
@@ -262,28 +278,15 @@ function stepSimulation(dt, elapsed) {
     }
 
     if (item.burning && item.fuel > 0) {
-      item.fuel = Math.max(0, item.fuel - dt * 0.024);
-      item.temp = Math.min(890, item.temp + dt * 60);
-      floorTemps[item.floor] = Math.min(780, floorTemps[item.floor] + dt * 22);
-      floorSoot[item.floor] = Math.min(1.0, floorSoot[item.floor] + dt * 0.045);
-
       fireCentroids[item.floor].add(item.group.position);
-      fireCounts[item.floor]++;
 
-      // Radiative heat transfer to nearby dry furniture on same floor
-      for (const other of flammables) {
-        if (other !== item && !other.burning && other.floor === item.floor && other.fuel > 0.1) {
-          const dist = item.group.position.distanceTo(other.group.position);
-          if (dist < 2.2 && other.wetness < 0.35) {
-            other.temp += dt * (42 / Math.max(0.6, dist));
-            if (other.temp > 265) other.burning = true;
-          }
-        }
-      }
-
-      if (Math.random() < 0.55) {
+      if (Math.random() < 0.58) {
         const p = item.group.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.95, 0.45, (Math.random() - 0.5) * 0.65));
-        spawnParticle('fire', p, new THREE.Vector3((Math.random() - 0.5) * 0.45, 1.5, (Math.random() - 0.5) * 0.45), item.floor, 0.58);
+        spawnParticle('fire', p, new THREE.Vector3((Math.random() - 0.5) * 0.45, 1.65, (Math.random() - 0.5) * 0.45), item.floor, 0.62);
+      }
+      if (Math.random() < 0.32) {
+        const p = item.group.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.45, (Math.random() - 0.5) * 0.5));
+        spawnParticle('spark', p, new THREE.Vector3((Math.random() - 0.5) * 1.1, 2.3 + Math.random() * 1.1, (Math.random() - 0.5) * 1.1), item.floor, 0.11);
       }
       if (Math.random() < 0.42) {
         const p = item.group.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.85, 0.75, (Math.random() - 0.5) * 0.55));
@@ -291,9 +294,6 @@ function stepSimulation(dt, elapsed) {
       }
 
       deformBurningMesh(item, 1.0 - item.fuel);
-      if (item.fuel <= 0) item.burning = false;
-    } else if (!item.burning) {
-      item.temp = Math.max(22, item.temp - dt * 12);
     }
 
     item.uniforms.uWetness.value = item.wetness;
@@ -330,13 +330,30 @@ function stepSimulation(dt, elapsed) {
     surf.uniforms.uTime.value = elapsed;
   }
 
-  // 4. Step Sprite Particles with Ceiling-Jet Deflection & Stairwell Chimney
+  // 4. Step Sprite Particles with Buoyant Curl, Ceiling-Jet Deflection & Stairwell Chimney
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    p.life -= dt * (p.type === 'fire' ? 1.9 : 0.42);
+    const decayRate = p.type === 'fire' ? 1.85 : (p.type === 'spark' ? 1.25 : 0.42);
+    p.life -= dt * decayRate;
+
+    if (p.type === 'fire') {
+      const swirl = Math.sin(elapsed * 7.5 + p.seed) * 0.75;
+      p.vel.x += swirl * dt;
+      p.vel.y += 0.8 * dt;
+      const w = p.baseScale * (0.45 + p.life * 0.45);
+      const h = p.baseScale * (1.1 + p.life * 0.65);
+      p.sprite.scale.set(w, h, 1);
+    } else if (p.type === 'spark') {
+      p.vel.x += Math.sin(elapsed * 12.0 + p.seed) * 1.4 * dt;
+      p.vel.y -= 1.6 * dt;
+    } else if (p.type === 'water') {
+      p.vel.y -= 4.5 * dt;
+    }
+
     p.sprite.position.addScaledVector(p.vel, dt);
 
     if (p.type === 'smoke' || p.type === 'steam') {
+      p.vel.x += Math.sin(elapsed * 2.6 + p.seed) * 0.45 * dt;
       const ceilY = (p.floor + 1) * FLOOR_HEIGHT - 0.25;
       if (p.sprite.position.y >= ceilY && p.sprite.position.x < 2.2) {
         p.sprite.position.y = ceilY;
@@ -346,11 +363,11 @@ function stepSimulation(dt, elapsed) {
       } else if (p.sprite.position.x >= 2.2 && p.floor < 2) {
         p.floor = Math.min(2, Math.floor(p.sprite.position.y / FLOOR_HEIGHT));
       }
-      const grow = p.baseScale * (1.0 + (1.0 - p.life) * 1.6);
+      const grow = p.baseScale * (1.0 + (1.0 - p.life) * 1.65);
       p.sprite.scale.setScalar(grow);
     }
 
-    p.sprite.material.opacity = Math.max(0, p.life * (p.type === 'smoke' ? 0.72 : 0.9));
+    p.sprite.material.opacity = Math.max(0, p.life * (p.type === 'smoke' ? 0.72 : 0.92));
     if (p.life <= 0) {
       scene.remove(p.sprite);
       p.sprite.material.dispose();

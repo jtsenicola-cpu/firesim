@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WaterGrid } from '../fluid-grid.js';
+import { stepThermalCompartments, FLASHOVER_TEMP } from '../thermal.js';
 
 function assertFiniteGrid(grid) {
   for (let i = 0; i < grid.h.length; i++) {
@@ -16,33 +17,34 @@ test('WaterGrid initializes dry and finite', () => {
   assertFiniteGrid(grid);
 });
 
-test('addWaterAt increases volume, clamps depth, and spreads via wave step', () => {
+test('addWaterAt increases volume, spreads via wave step, and strictly conserves volume', () => {
   const grid = new WaterGrid();
   grid.addWaterAt(0, 0, 0.2);
 
-  const centerBefore = grid.getDepthAt(0, 0);
-  assert.ok(centerBefore > 0 && centerBefore <= 0.45);
-  assert.ok(grid.getTotalVolume() > 0);
+  const initialVol = grid.getTotalVolume();
+  assert.ok(Math.abs(initialVol - 0.2) < 1e-5, `Expected volume ~0.2, got ${initialVol}`);
 
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 60; i++) {
     grid.step(0.016, null, 22);
   }
   assertFiniteGrid(grid);
+
+  const afterVol = grid.getTotalVolume();
+  assert.ok(Math.abs(afterVol - initialVol) < 1e-4, `Volume must be conserved: ${initialVol} -> ${afterVol}`);
 
   const neighborAfter = grid.getDepthAt(0.6, 0.6);
   assert.ok(neighborAfter > 0, 'Wave should spread water to neighboring cells');
 });
 
-test('stairwell drainage transfers water from upper floor to lower floor', () => {
+test('stairwell drainage transfers water from upper floor to lower floor while conserving total volume', () => {
   const upper = new WaterGrid();
   const lower = new WaterGrid();
 
-  // Add water near the stairwell opening on the right side (x > 2.3)
   for (let i = 0; i < 8; i++) {
     upper.addWaterAt(2.8, -0.4, 0.15);
   }
-  const upperStart = upper.getTotalVolume();
-  assert.ok(upperStart > 0.5);
+  const totalStart = upper.getTotalVolume();
+  assert.ok(Math.abs(totalStart - 1.2) < 1e-4);
 
   for (let i = 0; i < 40; i++) {
     upper.step(0.016, lower, 22);
@@ -51,8 +53,10 @@ test('stairwell drainage transfers water from upper floor to lower floor', () =>
 
   assertFiniteGrid(upper);
   assertFiniteGrid(lower);
-  assert.ok(lower.getTotalVolume() > 0.02, 'Lower floor should receive stairwell cascade water');
-  assert.ok(upper.getTotalVolume() < upperStart, 'Upper floor volume should decrease as it drains');
+  const totalEnd = upper.getTotalVolume() + lower.getTotalVolume();
+  assert.ok(Math.abs(totalEnd - totalStart) < 1e-3, `Combined volume must be conserved: ${totalStart} -> ${totalEnd}`);
+  assert.ok(lower.getTotalVolume() > 0.2, 'Lower floor should receive substantial stairwell cascade water');
+  assert.ok(upper.getTotalVolume() < totalStart, 'Upper floor volume should decrease as it drains');
 });
 
 test('high floor temperature evaporates water and drain clears grid', () => {
@@ -70,3 +74,32 @@ test('high floor temperature evaporates water and drain clears grid', () => {
   grid.drain();
   assert.equal(grid.getTotalVolume(), 0);
 });
+
+test('thermal model spreads fire, triggers flashover, and convects heat upstairs', () => {
+  const flammables = [
+    { name: 'Sofa', floor: 0, burning: true, temp: 400, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: -1.6, y: 0, z: 0.4 } },
+    { name: 'Table', floor: 0, burning: false, temp: 22, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: -1.6, y: 0, z: 1.6 } },
+    { name: 'FarItem', floor: 0, burning: false, temp: 22, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: 2.0, y: 0, z: -2.0 } }
+  ];
+  const floorTemps = [22, 22, 22];
+  const floorSoot = [0, 0, 0];
+  const windows = [{ broken: false }, { broken: false }, { broken: false }];
+
+  for (let i = 0; i < 600; i++) {
+    stepThermalCompartments({
+      dt: 0.05,
+      flammables,
+      floorTemps,
+      floorSoot,
+      windows,
+      getPos: (item) => item.pos
+    });
+  }
+
+  assert.equal(flammables[1].burning, true, 'Nearby table should ignite via radiative spread');
+  assert.ok(floorTemps[0] > FLASHOVER_TEMP, 'Compartment should reach flashover temperature');
+  assert.equal(flammables[2].burning, true, 'Far item should ignite during flashover');
+  assert.ok(floorTemps[1] > 40, 'Stairwell convection should heat upper floor');
+  assert.ok(floorSoot[1] > 0, 'Smoke/soot should convect to upper floor');
+});
+
