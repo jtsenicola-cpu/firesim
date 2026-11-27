@@ -166,7 +166,7 @@ export function buildBuilding(scene) {
 
     floorSurfaces.push({ floor: f, uniforms: wallUniforms });
 
-    // 4. Detailed Multi-Part Furniture & Supported Props (#4)
+    // 4. Lived-In Multi-Part Furniture & Everyday Props (#4)
     if (f === 0) {
       const sofa = createDetailedSofa(scene, -1.7, baseY, 0.3, f);
       const table = createDetailedCoffeeTable(scene, -1.7, baseY, 1.55, f);
@@ -174,33 +174,67 @@ export function buildBuilding(scene) {
       const bookStack = createSupportedProp(scene, -1.7, baseY + 0.46, 1.55, f, table, {
         name: 'Magazines', color: 0xfef08a, size: [0.38, 0.06, 0.28]
       });
+      const coffeeMug = createSupportedProp(scene, -1.28, baseY + 0.46, 1.48, f, table, {
+        name: 'Coffee Mug', color: 0xf8fafc, size: [0.1, 0.11, 0.1]
+      });
       const bookshelf = createBookshelf(scene, -3.3, baseY, -1.9, f);
+      const plant = createPottedPlant(scene, -3.45, baseY, -0.55, f);
+      const tvStand = createTVStand(scene, -3.35, baseY, 1.45, f);
+      const tv = createSupportedProp(scene, -3.35, baseY + 0.52, 1.45, f, tvStand, {
+        name: 'Living Room TV', color: 0x0f172a, size: [0.12, 0.68, 1.15]
+      });
+      const floorLamp = createFloorLamp(scene, -0.32, baseY, -0.25, f);
       const consoleTable = createDetailedDesk(scene, 0.45, baseY, 0.55, f, 'Hall Console');
+      const consolePlant = createPottedPlant(scene, 0.65, baseY + 0.78, 0.55, f, 0.6, consoleTable);
       const runnerRug = createRunnerRug(scene, 1.45, baseY, 1.15, f);
       const entryBoxes = createDetailedCrates(scene, 2.75, baseY, 0.95, f, 'Entryway Boxes', 0.65);
-      flammables.push(sofa, table, rug, bookStack, bookshelf, consoleTable, runnerRug, entryBoxes);
+      const wallArt = createWallArt(scene, 0.55, baseY + 1.65, -2.74, f, 'Framed Painting', 0x38bdf8);
+      flammables.push(
+        sofa, table, rug, bookStack, coffeeMug, bookshelf, plant,
+        tvStand, tv, floorLamp, consoleTable, consolePlant, runnerRug, entryBoxes, wallArt
+      );
     } else if (f === 1) {
       const bed = createDetailedBed(scene, -1.9, baseY, -0.7, f);
+      const bedRug = createRug(scene, -1.9, baseY, -0.55, f, '#334155', 'Bedroom Rug');
       const desk = createDetailedDesk(scene, 0.65, baseY, -1.8, f);
       const monitor = createSupportedProp(scene, 0.65, baseY + 0.78, -1.85, f, desk, {
         name: 'PC Monitor', color: 0x1e293b, size: [0.65, 0.44, 0.08]
       });
+      const keyboard = createSupportedProp(scene, 0.65, baseY + 0.78, -1.55, f, desk, {
+        name: 'Keyboard', color: 0x334155, size: [0.42, 0.03, 0.15]
+      });
+      const officeChair = createOfficeChair(scene, 0.65, baseY, -1.05, f);
       const nightstand = createNightstand(scene, -3.25, baseY, -1.45, f);
       const lamp = createSupportedProp(scene, -3.25, baseY + 0.56, -1.45, f, nightstand, {
         name: 'Bedside Lamp', color: 0xfde68a, size: [0.24, 0.34, 0.24]
       });
+      const dresser = createDresser(scene, -3.45, baseY, 0.85, f);
+      const laundry = createLaundryBasket(scene, -3.05, baseY, 1.95, f);
       const landingBench = createWoodenBench(scene, 2.55, baseY, 1.85, f);
       const hallShelf = createBookshelf(scene, 1.85, baseY, -2.15, f);
-      flammables.push(bed, desk, monitor, nightstand, lamp, landingBench, hallShelf);
+      const poster = createWallArt(scene, 0.65, baseY + 1.65, -2.74, f, 'Wall Poster', 0xf97316);
+      flammables.push(
+        bed, bedRug, desk, monitor, keyboard, officeChair, nightstand,
+        lamp, dresser, laundry, landingBench, hallShelf, poster
+      );
     } else {
       const workbench = createDetailedDesk(scene, 0.5, baseY, -1.8, f, 'Workbench');
       const paintCans = createSupportedProp(scene, 0.3, baseY + 0.78, -1.8, f, workbench, {
         name: 'Solvent Cans', color: 0xef4444, size: [0.35, 0.28, 0.22]
       });
+      const toolbox = createSupportedProp(scene, 0.85, baseY + 0.78, -1.78, f, workbench, {
+        name: 'Tool Box', color: 0xdc2626, size: [0.42, 0.22, 0.24]
+      });
       const crates = createDetailedCrates(scene, -1.8, baseY, -0.8, f);
       const stairLandingCrates = createDetailedCrates(scene, 2.65, baseY, 1.75, f, 'Attic Boxes', 0.7);
       const punchingBag = createPunchingBag(scene, -0.25, baseY, 0.85, f);
-      flammables.push(workbench, paintCans, crates, stairLandingCrates, punchingBag);
+      const gymMat = createGymMat(scene, -0.95, baseY, 1.05, f);
+      const weightBench = createWeightBench(scene, -1.75, baseY, 1.25, f);
+      const beanbag = createBeanbag(scene, 1.55, baseY, -1.45, f);
+      flammables.push(
+        workbench, paintCans, toolbox, crates, stairLandingCrates,
+        punchingBag, gymMat, weightBench, beanbag
+      );
     }
   }
 
@@ -438,14 +472,14 @@ function createDetailedCoffeeTable(scene, x, y, z, floor) {
   return makeFlammableNode(scene, g, { name: 'Oak Coffee Table', floor, color: 0x78350f, roughness: 0.55 });
 }
 
-function createRug(scene, x, y, z, floor) {
+function createRug(scene, x, y, z, floor, hex = '#991b1b', label = 'Woven Rug') {
   const g = new THREE.Group();
   g.position.set(x, y, z);
-  const tex = createFabricTexture('#991b1b');
+  const tex = createFabricTexture(hex);
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.02, 1.8));
   mesh.position.y = 0.01;
   g.add(mesh);
-  return makeFlammableNode(scene, g, { name: 'Woven Rug', floor, map: tex, roughness: 0.95 });
+  return makeFlammableNode(scene, g, { name: label, floor, map: tex, roughness: 0.95 });
 }
 
 function createBookshelf(scene, x, y, z, floor) {
@@ -460,6 +494,14 @@ function createBookshelf(scene, x, y, z, floor) {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.05, 0.38));
     shelf.position.set(0, 0.1 + s * 0.52, 0);
     g.add(shelf);
+    if (s < 3) {
+      for (let b = 0; b < 4; b++) {
+        const bh = 0.24 + (b % 2) * 0.07;
+        const book = new THREE.Mesh(new THREE.BoxGeometry(0.11, bh, 0.24));
+        book.position.set(-0.26 + b * 0.15, 0.125 + s * 0.52 + bh / 2, 0.02);
+        g.add(book);
+      }
+    }
   }
   return makeFlammableNode(scene, g, { name: 'Bookshelf', floor, color: 0x713f12, roughness: 0.65 });
 }
@@ -542,4 +584,130 @@ function createPunchingBag(scene, x, y, z, floor) {
   const leatherTex = createLeatherTexture('#881337');
   g.add(bag, topCap, botCap, strap);
   return makeFlammableNode(scene, g, { name: 'Punching Bag', floor, map: leatherTex, roughness: 0.45, isHanging: true });
+}
+
+function createTVStand(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.42, 1.35));
+  body.position.y = 0.25;
+  g.add(body);
+  for (const lz of [-0.58, 0.58]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.08, 0.08));
+    leg.position.set(0, 0.04, lz);
+    g.add(leg);
+  }
+  return makeFlammableNode(scene, g, { name: 'TV Console', floor, color: 0x57534e, roughness: 0.58 });
+}
+
+function createFloorLamp(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.05, 12));
+  base.position.y = 0.025;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 1.48, 8));
+  pole.position.y = 0.76;
+  const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.24, 0.34, 12));
+  shade.position.y = 1.56;
+  g.add(base, pole, shade);
+  return makeFlammableNode(scene, g, { name: 'Floor Lamp', floor, color: 0xfef3c7, roughness: 0.7 });
+}
+
+function createPottedPlant(scene, x, y, z, floor, scale = 1.0, supportedBy = null) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  g.scale.setScalar(scale);
+  const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.13, 0.28, 10));
+  pot.position.y = 0.14;
+  g.add(pot);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.38, 0.04));
+    leaf.position.set(Math.cos(a) * 0.11, 0.42, Math.sin(a) * 0.11);
+    leaf.rotation.z = -Math.cos(a) * 0.45;
+    leaf.rotation.x = Math.sin(a) * 0.45;
+    g.add(leaf);
+  }
+  return makeFlammableNode(scene, g, { name: 'Potted Plant', floor, color: 0x15803d, roughness: 0.75, supportedBy });
+}
+
+function createWallArt(scene, x, y, z, floor, name, color) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.64, 0.04));
+  g.add(frame);
+  return makeFlammableNode(scene, g, { name, floor, color, roughness: 0.45 });
+}
+
+function createOfficeChair(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.06, 10));
+  base.position.y = 0.03;
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.38, 8));
+  stem.position.y = 0.24;
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.48));
+  seat.position.y = 0.45;
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.52, 0.08));
+  back.position.set(0, 0.74, 0.21);
+  g.add(base, stem, seat, back);
+  return makeFlammableNode(scene, g, { name: 'Office Chair', floor, color: 0x1e293b, roughness: 0.68 });
+}
+
+function createDresser(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.52, 1.05, 1.15));
+  body.position.y = 0.525;
+  g.add(body);
+  return makeFlammableNode(scene, g, { name: 'Oak Dresser', floor, color: 0x78350f, roughness: 0.6 });
+}
+
+function createLaundryBasket(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.19, 0.48, 12));
+  basket.position.y = 0.24;
+  g.add(basket);
+  return makeFlammableNode(scene, g, { name: 'Laundry Basket', floor, color: 0x93c5fd, roughness: 0.85 });
+}
+
+function createGymMat(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const matMesh = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.03, 1.7));
+  matMesh.position.y = 0.015;
+  g.add(matMesh);
+  return makeFlammableNode(scene, g, { name: 'Gym Floor Mat', floor, color: 0x1e293b, roughness: 0.92 });
+}
+
+function createWeightBench(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.1, 0.34));
+  pad.position.y = 0.44;
+  const legF = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.42, 0.3));
+  legF.position.set(-0.45, 0.21, 0);
+  const legB = legF.clone();
+  legB.position.x = 0.45;
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 8));
+  bar.rotation.x = Math.PI / 2;
+  bar.position.set(0.38, 0.92, 0);
+  const plateL = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.05, 12));
+  plateL.rotation.x = Math.PI / 2;
+  plateL.position.set(0.38, 0.92, -0.55);
+  const plateR = plateL.clone();
+  plateR.position.z = 0.55;
+  g.add(pad, legF, legB, bar, plateL, plateR);
+  return makeFlammableNode(scene, g, { name: 'Weight Bench', floor, color: 0x334155, roughness: 0.55 });
+}
+
+function createBeanbag(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const tex = createFabricTexture('#7c2d12');
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.48, 0.52, 12, 4));
+  body.position.y = 0.26;
+  g.add(body);
+  return makeFlammableNode(scene, g, { name: 'Lounge Beanbag', floor, map: tex, roughness: 0.92 });
 }
