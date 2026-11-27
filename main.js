@@ -33,16 +33,16 @@ container.appendChild(renderer.domElement);
 // PBR Environment Reflections for wet floors, water pools, and glass
 const pmremGenerator = new THREE.PMREMGenerator(renderer);
 scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.42;
+scene.environmentIntensity = 0.25;
 
 // HDR Post-Processing (RenderPass -> UnrealBloomPass -> OutputPass)
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.42, // subtle AAA bloom strength
-  0.55, // radius
-  0.82  // threshold so only hot flame cores, sparks & embers glow
+  0.48, // subtle AAA bloom strength
+  0.5,  // radius
+  1.05  // >1.0 HDR threshold so only flames, sparks & emissive embers bloom (never white walls)
 );
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
@@ -81,9 +81,9 @@ stageGround.receiveShadow = true;
 scene.add(stageGround);
 
 // Cinematic Warm-Key + Cool-Rim Lighting
-scene.add(new THREE.HemisphereLight(0xc7d2fe, 0x1e293b, 0.45));
+scene.add(new THREE.HemisphereLight(0x94a3b8, 0x1e293b, 0.35));
 
-const keyLight = new THREE.DirectionalLight(0xfff1e0, 1.35);
+const keyLight = new THREE.DirectionalLight(0xfff1e0, 0.92);
 keyLight.position.set(-7, 16, 12);
 keyLight.castShadow = true;
 const shadowRes = isMobileViewport() ? 1024 : 2048;
@@ -486,7 +486,9 @@ function stepSimulation(dt, elapsed) {
     item.uniforms.uWetness.value = item.wetness;
     item.uniforms.uSootLevel.value = floorSoot[item.floor];
     item.uniforms.uBurnAmount.value = charAmount;
-    item.uniforms.uEmberGlow.value = item.burning ? 1.0 : Math.max(0, (effectiveTemp - 140) / 360);
+    item.uniforms.uEmberGlow.value = item.burning
+      ? 1.0
+      : Math.max(0, (item.temp - 180) / 360) * Math.min(1.0, charAmount * 2.5);
     item.uniforms.uTime.value = elapsed;
   }
 
@@ -574,6 +576,13 @@ function stepSimulation(dt, elapsed) {
     }
 
     p.sprite.position.addScaledVector(p.vel, dt);
+
+    const ceilLimit = (p.floor + 1) * FLOOR_HEIGHT - 0.18;
+    if (p.type === 'fire' && p.sprite.position.y >= ceilLimit && (p.sprite.position.x < 2.2 || p.floor === 2)) {
+      p.sprite.position.y = ceilLimit;
+      p.vel.y *= 0.1;
+      p.vel.x += (Math.random() - 0.5) * 2.2 * dt;
+    }
 
     if (p.type === 'smoke' || p.type === 'steam') {
       p.vel.x += Math.sin(elapsed * 2.6 + p.seed) * 0.55 * dt;
