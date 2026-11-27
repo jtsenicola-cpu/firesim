@@ -28,3 +28,10 @@ This file defines the automated verification hooks, benchmark scenarios, and rea
 - **Thermal & Ventilation Physics:** Realistic heat transfer, cooling toward ambient when extinguished, and ventilation effects when windows shatter.
 - **Water & Steam:** Smooth shallow-water ripples, visible wetness darkening/sheen on walls and furniture, and dense steam plumes on hot-surface contact.
 - **Performance:** Keep `particleCount` bounded and frame time smooth (`>= 30 FPS`, target `60 FPS`).
+
+## 4. 3D Engine Upgrade Roadmap (Prioritized for Hourly Cycles)
+1. **HDR Post-Processing (`EffectComposer` + `UnrealBloomPass`):** Use `three/addons/postprocessing/` to add subtle HDR bloom so `totalEmissiveRadiance` ember fissures, flame cores, and sparks glow naturally.
+2. **Environment Reflections (`PMREMGenerator` + `RoomEnvironment`):** Generate an environment map for realistic specular reflections on wet floors, water pools (`fluid.js`), and window glass.
+3. **GPU-Instanced Volumetric Fire & Smoke (`InstancedMesh` + `ShaderMaterial`):** Replace individual `THREE.Sprite` draw calls with instanced FBM-noise + blackbody-ramp shaders (white-hot -> orange -> dark soot) for higher realism and lower draw-call overhead.
+4. **Shattered Glass & Charred Debris:** Spawn tumbling glass shard meshes when windows shatter above `360°C`, plus charred debris on collapse.
+5. **Upgraded Water Surface Shader:** Add animated ripple normals, Fresnel reflections, and steam/foam highlights where floodwater contacts hot surfaces.
