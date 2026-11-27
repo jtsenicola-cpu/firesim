@@ -103,3 +103,35 @@ test('thermal model spreads fire, triggers flashover, and convects heat upstairs
   assert.ok(floorSoot[1] > 0, 'Smoke/soot should convect to upper floor');
 });
 
+test('fire extends across hallway objects and climbs up the stairs to floor 2', () => {
+  const flammables = [
+    { name: 'Sofa', floor: 0, burning: true, temp: 400, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: -1.7, y: 0, z: 0.3 } },
+    { name: 'Hall Console', floor: 0, burning: false, temp: 22, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: 0.45, y: 0, z: 0.55 } },
+    { name: 'Hallway Runner', floor: 0, burning: false, temp: 22, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: 1.45, y: 0, z: 1.15 } },
+    { name: 'Entryway Boxes', floor: 0, burning: false, temp: 22, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: 2.75, y: 0, z: 0.95 } },
+    { name: 'Stairs F1 Lower', floor: 0, burning: false, temp: 22, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: 3.0, y: 0.4, z: -0.2 } },
+    { name: 'Stairs F1 Upper', floor: 1, burning: false, temp: 22, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: 3.0, y: 1.8, z: 0.8 } },
+    { name: 'Landing Bench', floor: 1, burning: false, temp: 22, ignitionTemp: 260, fuel: 1.0, wetness: 0, pos: { x: 2.55, y: 2.8, z: 1.85 } }
+  ];
+  const floorTemps = [22, 22, 22];
+  const floorSoot = [0, 0, 0];
+  const windows = [{ broken: false }, { broken: false }, { broken: false }];
+
+  for (let i = 0; i < 1400; i++) {
+    stepThermalCompartments({
+      dt: 0.05,
+      flammables,
+      floorTemps,
+      floorSoot,
+      windows,
+      getPos: (item) => item.pos
+    });
+  }
+
+  assert.equal(flammables[3].burning, true, 'Entryway Boxes near stairs should ignite');
+  assert.equal(flammables[4].burning, true, 'Lower stair flight should ignite');
+  assert.equal(flammables[5].burning, true, 'Upper stair flight should ignite');
+  assert.equal(flammables[6].burning, true, 'Floor 2 Landing Bench at top of stairs should ignite');
+});
+
+

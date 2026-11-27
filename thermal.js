@@ -35,12 +35,12 @@ export function stepThermalCompartments({
       floorTemps[f] = Math.min(820, floorTemps[f] + dt * 24 * heatOutput);
       floorSoot[f] = Math.min(1.0, floorSoot[f] + dt * 0.045);
 
-      // Radiative + convective heat transfer to nearby dry furniture on same floor
+      // Radiative + convective heat transfer to nearby dry furniture (same floor or adjacent stairwell)
       const posA = getPos(item);
       for (let j = 0; j < flammables.length; j++) {
         if (i === j) continue;
         const other = flammables[j];
-        if (!other.burning && other.floor === f && other.fuel > 0.1) {
+        if (!other.burning && Math.abs(other.floor - f) <= 1 && other.fuel > 0.1) {
           const posB = getPos(other);
           const dx = posA.x - posB.x;
           const dy = posA.y - posB.y;
@@ -48,7 +48,8 @@ export function stepThermalCompartments({
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
           if (dist < 2.6 && other.wetness < 0.4) {
             const dryFactor = 1.0 - other.wetness;
-            other.temp += dt * (46 / Math.max(0.55, dist)) * dryFactor;
+            const upwardBoost = posB.y > posA.y + 0.25 ? 1.35 : 1.0;
+            other.temp += dt * (46 / Math.max(0.55, dist)) * dryFactor * upwardBoost;
             if (other.temp >= (other.ignitionTemp ?? 260)) {
               other.burning = true;
               if (onIgnite) onIgnite(other);

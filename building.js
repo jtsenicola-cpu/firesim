@@ -45,8 +45,9 @@ export function buildBuilding(scene) {
       stairBase.receiveShadow = true;
       scene.add(stairBase);
     } else {
-      // Staircase steps connecting floor f-1 to floor f
-      addStaircase(scene, 3.0, baseY - FLOOR_HEIGHT, -0.8, FLOOR_HEIGHT, slabMat);
+      // Flammable wooden staircase flights + handrail connecting floor f-1 to floor f
+      const stairSegments = addStaircase(scene, 3.0, baseY - FLOOR_HEIGHT, -0.8, FLOOR_HEIGHT, f - 1);
+      flammables.push(...stairSegments);
     }
 
     floorSurfaces.push({ floor: f, uniforms: slabUniforms });
@@ -96,7 +97,10 @@ export function buildBuilding(scene) {
         name: 'Magazines', color: 0xfef08a, size: [0.38, 0.06, 0.28]
       });
       const bookshelf = createBookshelf(scene, -3.3, baseY, -1.9, f);
-      flammables.push(sofa, table, rug, bookStack, bookshelf);
+      const consoleTable = createDetailedDesk(scene, 0.45, baseY, 0.55, f, 'Hall Console');
+      const runnerRug = createRunnerRug(scene, 1.45, baseY, 1.15, f);
+      const entryBoxes = createDetailedCrates(scene, 2.75, baseY, 0.95, f, 'Entryway Boxes', 0.65);
+      flammables.push(sofa, table, rug, bookStack, bookshelf, consoleTable, runnerRug, entryBoxes);
     } else if (f === 1) {
       const bed = createDetailedBed(scene, -1.9, baseY, -0.7, f);
       const desk = createDetailedDesk(scene, 0.65, baseY, -1.8, f);
@@ -107,14 +111,17 @@ export function buildBuilding(scene) {
       const lamp = createSupportedProp(scene, -3.25, baseY + 0.56, -1.45, f, nightstand, {
         name: 'Bedside Lamp', color: 0xfde68a, size: [0.24, 0.34, 0.24]
       });
-      flammables.push(bed, desk, monitor, nightstand, lamp);
+      const landingBench = createWoodenBench(scene, 2.55, baseY, 1.85, f);
+      const hallShelf = createBookshelf(scene, 1.85, baseY, -2.15, f);
+      flammables.push(bed, desk, monitor, nightstand, lamp, landingBench, hallShelf);
     } else {
       const workbench = createDetailedDesk(scene, 0.5, baseY, -1.8, f, 'Workbench');
       const paintCans = createSupportedProp(scene, 0.3, baseY + 0.78, -1.8, f, workbench, {
         name: 'Solvent Cans', color: 0xef4444, size: [0.35, 0.28, 0.22]
       });
       const crates = createDetailedCrates(scene, -1.8, baseY, -0.8, f);
-      flammables.push(workbench, paintCans, crates);
+      const stairLandingCrates = createDetailedCrates(scene, 2.65, baseY, 1.75, f, 'Attic Boxes', 0.7);
+      flammables.push(workbench, paintCans, crates, stairLandingCrates);
     }
   }
 
@@ -129,17 +136,71 @@ export function buildBuilding(scene) {
   return { flammables, floorSurfaces, windows };
 }
 
-function addStaircase(scene, x, baseY, zStart, height, mat) {
+function addStaircase(scene, x, baseY, zStart, height, lowerFloor) {
   const steps = 10;
   const dy = height / steps;
   const dz = 2.4 / steps;
+  const lowerGroup = new THREE.Group();
+  lowerGroup.position.set(x, baseY, zStart);
+  const upperGroup = new THREE.Group();
+  upperGroup.position.set(x, baseY + height * 0.5, zStart + 1.2);
+
   for (let i = 0; i < steps; i++) {
-    const step = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.08, dz * 1.15), mat);
-    step.position.set(x, baseY + (i + 0.5) * dy, zStart + i * dz);
-    step.castShadow = true;
-    step.receiveShadow = true;
-    scene.add(step);
+    const step = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.09, dz * 1.18));
+    if (i < 5) {
+      step.position.set(0, (i + 0.5) * dy, i * dz);
+      lowerGroup.add(step);
+    } else {
+      step.position.set(0, (i - 5 + 0.5) * dy, (i - 5) * dz);
+      upperGroup.add(step);
+    }
   }
+
+  // Wooden handrail posts + rail per flight
+  const postL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.9, 0.07));
+  postL.position.set(-0.62, 0.45, 0.1);
+  const postU = postL.clone();
+  postU.position.set(-0.62, 0.45, 1.0);
+  lowerGroup.add(postL);
+  upperGroup.add(postU);
+
+  const lowerNode = makeFlammableNode(scene, lowerGroup, {
+    name: `Stairs F${lowerFloor + 1} Lower`,
+    floor: lowerFloor,
+    color: 0x92400e,
+    roughness: 0.68
+  });
+  const upperNode = makeFlammableNode(scene, upperGroup, {
+    name: `Stairs F${lowerFloor + 1} Upper`,
+    floor: lowerFloor + 1,
+    color: 0x92400e,
+    roughness: 0.68
+  });
+  return [lowerNode, upperNode];
+}
+
+function createRunnerRug(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const tex = createFabricTexture('#991b1b');
+  const matMesh = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.025, 1.05));
+  matMesh.position.y = 0.013;
+  g.add(matMesh);
+  return makeFlammableNode(scene, g, { name: 'Hallway Runner', floor, map: tex, roughness: 0.95 });
+}
+
+function createWoodenBench(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.08, 0.48));
+  seat.position.y = 0.44;
+  g.add(seat);
+  for (const lx of [-0.48, 0.48]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.42, 0.44));
+    leg.position.set(lx, 0.21, 0);
+    g.add(leg);
+  }
+  return makeFlammableNode(scene, g, { name: 'Landing Bench', floor, color: 0x78350f, roughness: 0.62 });
 }
 
 function createWindow(scene, x, y, z, floor) {
@@ -340,9 +401,10 @@ function createNightstand(scene, x, y, z, floor) {
   return makeFlammableNode(scene, g, { name: 'Nightstand', floor, color: 0x78350f, roughness: 0.6 });
 }
 
-function createDetailedCrates(scene, x, y, z, floor) {
+function createDetailedCrates(scene, x, y, z, floor, label = 'Timber Crates', scale = 1.0) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
+  g.scale.setScalar(scale);
   const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.92, 0.92));
   c1.position.set(0, 0.46, 0);
   const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.72, 0.72));
@@ -350,5 +412,5 @@ function createDetailedCrates(scene, x, y, z, floor) {
   const c3 = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55));
   c3.position.set(0.1, 1.19, -0.05);
   g.add(c1, c2, c3);
-  return makeFlammableNode(scene, g, { name: 'Timber Crates', floor, color: 0xb45309, roughness: 0.82 });
+  return makeFlammableNode(scene, g, { name: label, floor, color: 0xb45309, roughness: 0.82 });
 }
