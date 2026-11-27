@@ -212,7 +212,18 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
   const h = block.height ?? 2.4;
   const d = block.depth ?? 0.2;
 
-  // 1. Leave jagged broken remnants only if directly supported; wake up any settled rubble/remnants above
+  // 1. Wake up any settled rubble/remnants at or above this block's floor so nothing ever floats
+  const wakeY = block.floor * FLOOR_HEIGHT - 0.1;
+  for (const r of rubbleChunks) {
+    if (r.mesh.position.y >= wakeY) r.settled = false;
+  }
+  for (const rem of remnantMeshes) {
+    if (rem.mesh.position.y >= wakeY) {
+      rem.settled = false;
+      rem.spin.set((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
+    }
+  }
+
   const floorSupported = block.floor === 0 || getSupportingFloorY(center.x, block.floor * FLOOR_HEIGHT + 0.1, center.z) >= block.floor * FLOOR_HEIGHT - 0.05;
   if (!block.isSlab && floorSupported) {
     const stumpH = 0.25 + Math.random() * 0.28;
@@ -235,73 +246,35 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
       settled: true
     });
   } else if (block.isSlab) {
-    // Drain any water/smoke floating on this collapsed slab and wake up all debris above it
+    // Drain any water/smoke floating on this collapsed slab
     if (!block.isRoof && waterFloors[block.floor]) {
       waterFloors[block.floor].drain();
     }
     if (!block.isRoof && smokeLayers[block.floor]) {
       smokeLayers[block.floor].mesh.visible = false;
     }
-    const slabLevelY = block.floor * FLOOR_HEIGHT - 0.1;
-    for (const r of rubbleChunks) {
-      if (r.mesh.position.y >= slabLevelY) r.settled = false;
-    }
-    for (const rem of remnantMeshes) {
-      if (rem.mesh.position.y >= slabLevelY) {
-        rem.settled = false;
-        rem.spin.set((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3);
-      }
-    }
-    // Never leave floating roof ledges; when roof collapses, break the whole roof into 4 large falling roof-slab sections
-    if (block.isRoof) {
-      const roofMat = new THREE.MeshStandardMaterial({ color: block.color, roughness: 0.9 });
-      const qw = w * 0.48;
-      const qd = d * 0.48;
-      for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-          const section = new THREE.Mesh(new THREE.BoxGeometry(qw, h, qd), roofMat);
-          section.position.set(center.x + sx * (w * 0.25), center.y, center.z + sz * (d * 0.25));
-          section.castShadow = true;
-          section.receiveShadow = true;
-          section.userData.noRaycast = true;
-          scene.add(section);
-          remnantMeshes.push({
-            mesh: section,
-            floor: block.floor,
-            halfH: h / 2 + 0.08,
-            vel: new THREE.Vector3(sx * (0.4 + Math.random() * 0.6), -0.5, sz * (0.4 + Math.random() * 0.6)),
-            spin: new THREE.Vector3((Math.random() - 0.5) * 0.9, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 0.9),
-            settled: false
-          });
-        }
-      }
-    } else {
-      const intactBack = structuralBlocks.some((b) => b.isLoadBearing && b.floor === block.floor - 1 && !b.destroyed && b.depth < 0.5);
-      const intactRight = structuralBlocks.some((b) => b.isLoadBearing && b.floor === block.floor - 1 && !b.destroyed && b.width < 0.5);
-      const ledgeMat = new THREE.MeshStandardMaterial({ color: block.color, roughness: 0.85 });
-      const ledges = [];
-      if (intactBack) {
-        ledges.push({ size: [w * 0.85, h, 0.42], pos: [center.x, center.y, center.z - d / 2 + 0.21], rotZ: (Math.random() - 0.5) * 0.05 });
-      }
-      if (intactRight) {
-        ledges.push({ size: [0.42, h, d * 0.78], pos: [center.x + w / 2 - 0.21, center.y, center.z], rotX: (Math.random() - 0.5) * 0.05 });
-      }
-      for (const l of ledges) {
-        const ledge = new THREE.Mesh(new THREE.BoxGeometry(...l.size), ledgeMat);
-        ledge.position.set(...l.pos);
-        if (l.rotZ) ledge.rotation.z = l.rotZ;
-        if (l.rotX) ledge.rotation.x = l.rotX;
-        ledge.castShadow = true;
-        ledge.receiveShadow = true;
-        ledge.userData.noRaycast = true;
-        scene.add(ledge);
+    // Break collapsed floor slabs and roof into 4 large falling slab sections (zero floating ledges)
+    const slabSectionMat = new THREE.MeshStandardMaterial({
+      color: block.isRoof ? block.color : 0x8b5a2b,
+      roughness: 0.88
+    });
+    const qw = w * 0.48;
+    const qd = d * 0.48;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const section = new THREE.Mesh(new THREE.BoxGeometry(qw, h, qd), slabSectionMat);
+        section.position.set(center.x + sx * (w * 0.25), center.y, center.z + sz * (d * 0.25));
+        section.castShadow = true;
+        section.receiveShadow = true;
+        section.userData.noRaycast = true;
+        scene.add(section);
         remnantMeshes.push({
-          mesh: ledge,
+          mesh: section,
           floor: block.floor,
-          halfH: h / 2,
-          vel: new THREE.Vector3(),
-          spin: new THREE.Vector3(),
-          settled: true
+          halfH: h / 2 + 0.08,
+          vel: new THREE.Vector3(sx * (0.4 + Math.random() * 0.6), -0.5, sz * (0.4 + Math.random() * 0.6)),
+          spin: new THREE.Vector3((Math.random() - 0.5) * 1.1, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 1.1),
+          settled: false
         });
       }
     }
