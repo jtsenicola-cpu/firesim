@@ -73,12 +73,19 @@ export function applySurfacePhysicsShader(material, options = {}) {
          float wetMask = clamp(uWetness * (0.8 + 0.2 * n), 0.0, 1.0);
          diffuseColor.rgb *= mix(1.0, 0.44, wetMask);
 
-         // Charring & glowing ember fissures
+         // Charring
          float charMask = smoothstep(0.1, 0.9, uBurnAmount * (0.6 + 0.5 * n));
-         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.025, 0.02, 0.02), charMask);
-         float pulse = 0.75 + 0.25 * sin(uTime * 7.5 + n * 6.28);
-         vec3 emberCol = vec3(1.0, 0.28, 0.03) * uEmberGlow * crack * pulse * 2.6;
-         diffuseColor.rgb += emberCol;`
+         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.025, 0.02, 0.02), charMask);`
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+         float emberN = noise3D(vWorldPos * 6.5);
+         float emberCrack = smoothstep(0.45, 0.78, noise3D(vWorldPos * 18.0));
+         float emberWet = clamp(uWetness * (0.8 + 0.2 * emberN), 0.0, 1.0);
+         float pulse = 0.75 + 0.25 * sin(uTime * 7.5 + emberN * 6.28);
+         vec3 emberCol = vec3(1.0, 0.28, 0.03) * uEmberGlow * emberCrack * pulse * 2.8 * (1.0 - emberWet * 0.85);
+         totalEmissiveRadiance += emberCol;`
       )
       .replace(
         '#include <roughnessmap_fragment>',
