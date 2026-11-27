@@ -105,14 +105,18 @@ try {
   await page.waitForTimeout(150);
   await page.screenshot({ path: path.join(OUT_DIR, '03-punching-bag-water.png') });
 
-  // Scenario 3: Red Faction structural destruction (collapse Floor 2 & 3 -> floor remnants, falling window & roof)
+  // Scenario 3: Red Faction structural destruction (smash Floor 2 walls, then collapse Floor 1 -> zero floating debris)
   const metrics3 = await page.evaluate(() => {
     window.__firesim.setCameraPreset('default');
-    // Breach Floor 2 load-bearing walls (indices 9..13) to trigger upper collapse
     for (let i = 9; i <= 13; i++) {
       window.__firesim.breachBlock(i, 1.0);
     }
-    return window.__firesim.step(0.03, 90);
+    window.__firesim.step(0.03, 40);
+    // Now breach Floor 1 load-bearing walls (indices 0..4) so Floor 2 collapses onto Floor 1
+    for (let i = 0; i <= 4; i++) {
+      window.__firesim.breachBlock(i, 1.0);
+    }
+    return window.__firesim.step(0.03, 120);
   });
   await page.waitForTimeout(150);
   await page.screenshot({ path: path.join(OUT_DIR, '04-destruction-remnants.png') });
