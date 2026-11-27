@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildBuilding, FLOOR_HEIGHT, NUM_FLOORS } from './building.js';
 import { FloorWaterSystem } from './fluid.js';
 import { createSpriteGlowTexture } from './textures.js';
+import { createFlameMaterial, createSmokeMaterial } from './shaders.js';
 import { stepThermalCompartments } from './thermal.js';
 
 const container = document.getElementById('canvas-container');
@@ -73,35 +74,48 @@ const floorTemps = [22, 22, 22];
 const floorSoot = [0, 0, 0];
 
 // Soft Radial Sprite Particles (Fire, Smoke, Water, Steam, Ember Sparks)
-const fireTex = createSpriteGlowTexture('rgba(255,248,195,1)', 'rgba(255,85,10,0.82)', 'rgba(0,0,0,0)');
-const smokeTex = createSpriteGlowTexture('rgba(20,20,24,0.88)', 'rgba(39,39,42,0.42)', 'rgba(0,0,0,0)');
-const steamTex = createSpriteGlowTexture('rgba(255,255,255,0.9)', 'rgba(226,232,240,0.45)', 'rgba(0,0,0,0)');
 const waterTex = createSpriteGlowTexture('rgba(186,230,253,0.95)', 'rgba(56,189,248,0.65)', 'rgba(0,0,0,0)');
 const sparkTex = createSpriteGlowTexture('rgba(255,255,220,1)', 'rgba(255,155,30,0.9)', 'rgba(0,0,0,0)');
+const billboardGeom = new THREE.PlaneGeometry(1, 1);
 
 const particles = [];
 
-function spawnParticle(type, pos, vel, floor, scale = 0.55) {
+function spawnParticle(type, pos, vel, floor, scale = 0.55, intensity = 1.0) {
   if (particles.length > 560) return;
-  const texMap = { fire: fireTex, smoke: smokeTex, steam: steamTex, water: waterTex, spark: sparkTex };
-  const isAdditive = type === 'fire' || type === 'spark';
+  const seed = Math.random() * 6.283;
+
+  if (type === 'fire' || type === 'smoke' || type === 'steam') {
+    const mat = type === 'fire'
+      ? createFlameMaterial(seed)
+      : createSmokeMaterial(seed, type === 'steam');
+    if (type === 'fire') mat.uniforms.uIntensity.value = intensity;
+
+    const mesh = new THREE.Mesh(billboardGeom, mat);
+    mesh.position.copy(pos);
+    mesh.quaternion.copy(camera.quaternion);
+    if (type === 'fire') {
+      mesh.scale.set(scale * 0.82, scale * 1.65, 1);
+    } else {
+      mesh.scale.setScalar(scale);
+    }
+    scene.add(mesh);
+    particles.push({ type, sprite: mesh, vel, floor, life: 1.0, baseScale: scale, seed, isShader: true });
+    return;
+  }
+
+  const texMap = { water: waterTex, spark: sparkTex };
   const mat = new THREE.SpriteMaterial({
     map: texMap[type],
     transparent: true,
-    opacity: type === 'smoke' ? 0.72 : 0.92,
-    blending: isAdditive ? THREE.AdditiveBlending : THREE.NormalBlending,
-    depthWrite: false,
-    rotation: type === 'fire' ? (Math.random() - 0.5) * 0.45 : 0
+    opacity: 0.92,
+    blending: type === 'spark' ? THREE.AdditiveBlending : THREE.NormalBlending,
+    depthWrite: false
   });
   const sprite = new THREE.Sprite(mat);
   sprite.position.copy(pos);
-  if (type === 'fire') {
-    sprite.scale.set(scale * 0.68, scale * 1.48, 1);
-  } else {
-    sprite.scale.setScalar(scale);
-  }
+  sprite.scale.setScalar(scale);
   scene.add(sprite);
-  particles.push({ type, sprite, vel, floor, life: 1.0, baseScale: scale, seed: Math.random() * 6.283 });
+  particles.push({ type, sprite, vel, floor, life: 1.0, baseScale: scale, seed, isShader: false });
 }
 
 // Tool State & Multi-Touch Input
@@ -283,18 +297,42 @@ function stepSimulation(dt, elapsed) {
 
     if (item.burning && item.fuel > 0) {
       fireCentroids[item.floor].add(item.group.position);
+      if (!item.boundsSize) {
+        const box = new THREE.Box3().setFromObject(item.group);
+        item.boundsSize = new THREE.Vector3();
+        box.getSize(item.boundsSize);
+        item.boundsCenter = new THREE.Vector3();
+        box.getCenter(item.boundsCenter);
+      }
 
-      if (Math.random() < 0.58) {
-        const p = item.group.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.95, 0.45, (Math.random() - 0.5) * 0.65));
-        spawnParticle('fire', p, new THREE.Vector3((Math.random() - 0.5) * 0.45, 1.65, (Math.random() - 0.5) * 0.45), item.floor, 0.62);
+      const intensity = Math.min(1.4, Math.max(0.35, (item.temp - 180) / 480)) * Math.min(1.0, item.fuel * 2.2);
+      const sx = Math.max(0.4, item.boundsSize.x * 0.85);
+      const sy = Math.max(0.2, item.boundsSize.y * 0.45);
+      const sz = Math.max(0.4, item.boundsSize.z * 0.85);
+      const draftX = windows[item.floor]?.broken ? 0.45 : 0.12;
+
+      if (Math.random() < 0.68 * Math.min(1.2, intensity + 0.25)) {
+        const p = item.boundsCenter.clone().add(new THREE.Vector3(
+          (Math.random() - 0.5) * sx,
+          (Math.random() - 0.2) * sy,
+          (Math.random() - 0.5) * sz
+        ));
+        spawnParticle(
+          'fire',
+          p,
+          new THREE.Vector3((Math.random() - 0.5) * 0.5 + draftX, 1.3 + intensity * 0.75, (Math.random() - 0.5) * 0.5),
+          item.floor,
+          0.55 + intensity * 0.42,
+          intensity
+        );
       }
-      if (Math.random() < 0.32) {
-        const p = item.group.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.45, (Math.random() - 0.5) * 0.5));
-        spawnParticle('spark', p, new THREE.Vector3((Math.random() - 0.5) * 1.1, 2.3 + Math.random() * 1.1, (Math.random() - 0.5) * 1.1), item.floor, 0.11);
+      if (Math.random() < 0.35 * intensity) {
+        const p = item.boundsCenter.clone().add(new THREE.Vector3((Math.random() - 0.5) * sx, 0.2, (Math.random() - 0.5) * sz));
+        spawnParticle('spark', p, new THREE.Vector3((Math.random() - 0.5) * 1.2 + draftX, 2.2 + Math.random() * 1.3, (Math.random() - 0.5) * 1.2), item.floor, 0.1);
       }
-      if (Math.random() < 0.42) {
-        const p = item.group.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.85, 0.75, (Math.random() - 0.5) * 0.55));
-        spawnParticle('smoke', p, new THREE.Vector3((Math.random() - 0.5) * 0.55, 1.7, (Math.random() - 0.5) * 0.55), item.floor, 0.72);
+      if (Math.random() < 0.45) {
+        const p = item.boundsCenter.clone().add(new THREE.Vector3((Math.random() - 0.5) * sx, sy * 0.8, (Math.random() - 0.5) * sz));
+        spawnParticle('smoke', p, new THREE.Vector3((Math.random() - 0.5) * 0.55 + draftX, 1.55 + intensity * 0.45, (Math.random() - 0.5) * 0.55), item.floor, 0.75 + intensity * 0.25);
       }
 
       deformBurningMesh(item, 1.0 - item.fuel);
@@ -334,18 +372,19 @@ function stepSimulation(dt, elapsed) {
     surf.uniforms.uTime.value = elapsed;
   }
 
-  // 4. Step Sprite Particles with Buoyant Curl, Ceiling-Jet Deflection & Stairwell Chimney
+  // 4. Step Volumetric Flame/Smoke Billboards & Particles with Buoyant Curl & Ceiling-Jet Deflection
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    const decayRate = p.type === 'fire' ? 1.85 : (p.type === 'spark' ? 1.25 : 0.42);
+    const decayRate = p.type === 'fire' ? 1.55 : (p.type === 'spark' ? 1.25 : 0.42);
     p.life -= dt * decayRate;
 
     if (p.type === 'fire') {
-      const swirl = Math.sin(elapsed * 7.5 + p.seed) * 0.75;
+      const swirl = Math.sin(elapsed * 8.5 + p.seed) * 0.95;
       p.vel.x += swirl * dt;
-      p.vel.y += 0.8 * dt;
-      const w = p.baseScale * (0.45 + p.life * 0.45);
-      const h = p.baseScale * (1.1 + p.life * 0.65);
+      p.vel.z += Math.cos(elapsed * 6.5 + p.seed) * 0.65 * dt;
+      p.vel.y += 1.05 * dt;
+      const w = p.baseScale * (0.55 + p.life * 0.5);
+      const h = p.baseScale * (1.25 + (1.0 - p.life) * 0.65);
       p.sprite.scale.set(w, h, 1);
     } else if (p.type === 'spark') {
       p.vel.x += Math.sin(elapsed * 12.0 + p.seed) * 1.4 * dt;
@@ -357,21 +396,28 @@ function stepSimulation(dt, elapsed) {
     p.sprite.position.addScaledVector(p.vel, dt);
 
     if (p.type === 'smoke' || p.type === 'steam') {
-      p.vel.x += Math.sin(elapsed * 2.6 + p.seed) * 0.45 * dt;
+      p.vel.x += Math.sin(elapsed * 2.6 + p.seed) * 0.55 * dt;
       const ceilY = (p.floor + 1) * FLOOR_HEIGHT - 0.25;
       if (p.sprite.position.y >= ceilY && p.sprite.position.x < 2.2) {
         p.sprite.position.y = ceilY;
         p.vel.y = 0;
-        p.vel.x += (Math.random() - 0.42) * 2.4 * dt;
+        p.vel.x += (Math.random() - 0.38) * 2.5 * dt;
         p.vel.z += (Math.random() - 0.45) * 2.4 * dt;
       } else if (p.sprite.position.x >= 2.2 && p.floor < 2) {
         p.floor = Math.min(2, Math.floor(p.sprite.position.y / FLOOR_HEIGHT));
       }
-      const grow = p.baseScale * (1.0 + (1.0 - p.life) * 1.65);
+      const grow = p.baseScale * (1.0 + (1.0 - p.life) * 1.85);
       p.sprite.scale.setScalar(grow);
     }
 
-    p.sprite.material.opacity = Math.max(0, p.life * (p.type === 'smoke' ? 0.72 : 0.92));
+    if (p.isShader) {
+      p.sprite.quaternion.copy(camera.quaternion);
+      p.sprite.material.uniforms.uTime.value = elapsed;
+      p.sprite.material.uniforms.uLife.value = Math.max(0, p.life);
+    } else {
+      p.sprite.material.opacity = Math.max(0, p.life * 0.92);
+    }
+
     if (p.life <= 0) {
       scene.remove(p.sprite);
       p.sprite.material.dispose();

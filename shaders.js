@@ -98,3 +98,126 @@ export function applySurfacePhysicsShader(material, options = {}) {
   material.needsUpdate = true;
   return uniforms;
 }
+
+const NOISE_2D_GLSL = `
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+  float noise2D(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  float fbm2D(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 4; i++) {
+      v += a * noise2D(p);
+      p = p * 2.05 + vec2(17.1, 31.7);
+      a *= 0.5;
+    }
+    return v;
+  }
+`;
+
+export function createFlameMaterial(seed = 0.0) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0.0 },
+      uLife: { value: 1.0 },
+      uSeed: { value: seed },
+      uIntensity: { value: 1.0 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uLife;
+      uniform float uSeed;
+      uniform float uIntensity;
+      varying vec2 vUv;
+      ${NOISE_2D_GLSL}
+
+      void main() {
+        vec2 uv = vUv;
+        float y = uv.y;
+        float x = (uv.x - 0.5) * 2.0;
+
+        // Upward scrolling FBM turbulence that intensifies toward the flame tip
+        float flow = uTime * 4.2 + uSeed * 10.0;
+        float n1 = fbm2D(vec2(uv.x * 3.2 + uSeed, y * 2.8 - flow));
+        float n2 = fbm2D(vec2(uv.x * 6.5 - uSeed, y * 5.2 - flow * 1.45));
+        float turb = (n1 * 0.65 + n2 * 0.35) - 0.48;
+
+        // Tapered teardrop silhouette with licking flame tongues
+        float taper = mix(0.85, 0.12, pow(y, 0.72));
+        float dist = abs(x + turb * (0.35 + y * 0.85)) / max(0.08, taper);
+        float shape = smoothstep(1.0, 0.18, dist) * smoothstep(0.0, 0.16, y) * smoothstep(1.0, 0.62, y + n2 * 0.28);
+
+        // Blackbody temperature gradient: white-yellow core -> orange -> crimson tip
+        float heat = clamp((1.0 - y * 0.75) * (0.75 + 0.5 * n1) * uLife * uIntensity, 0.0, 1.2);
+        vec3 col = mix(vec3(0.75, 0.08, 0.01), vec3(1.0, 0.42, 0.04), smoothstep(0.12, 0.55, heat));
+        col = mix(col, vec3(1.0, 0.95, 0.76), smoothstep(0.55, 0.98, heat));
+
+        float alpha = shape * smoothstep(0.0, 0.25, uLife) * 0.92;
+        if (alpha < 0.01) discard;
+        gl_FragColor = vec4(col * (1.15 + heat * 0.5), alpha);
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+}
+
+export function createSmokeMaterial(seed = 0.0, isSteam = false) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0.0 },
+      uLife: { value: 1.0 },
+      uSeed: { value: seed },
+      uOpacity: { value: isSteam ? 0.55 : 0.65 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uLife;
+      uniform float uSeed;
+      uniform float uOpacity;
+      varying vec2 vUv;
+      ${NOISE_2D_GLSL}
+
+      void main() {
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        float n = fbm2D(vUv * 3.4 + vec2(uSeed, -uTime * 0.7));
+        float mask = smoothstep(1.0, 0.15, r + (n - 0.5) * 0.55);
+        float alpha = mask * smoothstep(0.0, 0.2, uLife) * smoothstep(1.0, 0.85, uLife) * uOpacity;
+        if (alpha < 0.01) discard;
+        vec3 baseCol = ${isSteam ? 'vec3(0.9, 0.94, 0.98)' : 'vec3(0.09, 0.09, 0.11)'};
+        vec3 col = baseCol * (0.75 + 0.45 * n);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false
+  });
+}
