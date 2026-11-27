@@ -1,11 +1,5 @@
 import * as THREE from 'three';
 
-/**
- * Patches a MeshStandardMaterial with real-time uniforms for:
- * - uWetness: darkens diffuse albedo & drops roughness for wet sheen
- * - uSootLevel: accumulates dark carbon gradient near floor ceilings
- * - uBurnAmount & uEmberGlow: alligator-char cracking & glowing embers
- */
 export function applySurfacePhysicsShader(material, options = {}) {
   const uniforms = {
     uWetness: { value: options.wetness ?? 0.0 },
@@ -26,13 +20,11 @@ export function applySurfacePhysicsShader(material, options = {}) {
       .replace(
         '#include <common>',
         `#include <common>
-         varying vec3 vWorldPos;
-         varying vec3 vLocalPos;`
+         varying vec3 vWorldPos;`
       )
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
-         vLocalPos = position;
          vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
       );
 
@@ -48,7 +40,6 @@ export function applySurfacePhysicsShader(material, options = {}) {
          uniform float uCeilingHeight;
          uniform float uTime;
          varying vec3 vWorldPos;
-         varying vec3 vLocalPos;
 
          float hash31(vec3 p) {
            p = fract(p * 0.1031);
@@ -73,26 +64,25 @@ export function applySurfacePhysicsShader(material, options = {}) {
          float n = noise3D(vWorldPos * 6.5);
          float crack = smoothstep(0.45, 0.78, noise3D(vWorldPos * 18.0));
 
-         // 1. Ceiling soot gradient (thickest near top of compartment)
+         // Ceiling soot gradient
          float relH = clamp((vWorldPos.y - uFloorBaseY) / uCeilingHeight, 0.0, 1.0);
          float sootMask = smoothstep(0.35, 1.0, relH) * uSootLevel * (0.65 + 0.35 * n);
-         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.05, 0.055), clamp(sootMask, 0.0, 0.92));
+         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.04, 0.04, 0.045), clamp(sootMask, 0.0, 0.92));
 
-         // 2. Wetness darkening (porous saturation reduces diffuse reflectance)
+         // Porous wetness darkening
          float wetMask = clamp(uWetness * (0.8 + 0.2 * n), 0.0, 1.0);
-         diffuseColor.rgb *= mix(1.0, 0.42, wetMask);
+         diffuseColor.rgb *= mix(1.0, 0.44, wetMask);
 
-         // 3. Charring & glowing ember fissures
+         // Charring & glowing ember fissures
          float charMask = smoothstep(0.1, 0.9, uBurnAmount * (0.6 + 0.5 * n));
-         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03, 0.025, 0.025), charMask);
-         float pulse = 0.75 + 0.25 * sin(uTime * 7.0 + n * 6.28);
-         vec3 emberCol = vec3(1.0, 0.26, 0.03) * uEmberGlow * crack * pulse * 2.4;
+         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.025, 0.02, 0.02), charMask);
+         float pulse = 0.75 + 0.25 * sin(uTime * 7.5 + n * 6.28);
+         vec3 emberCol = vec3(1.0, 0.28, 0.03) * uEmberGlow * crack * pulse * 2.6;
          diffuseColor.rgb += emberCol;`
       )
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
-         // Wet surfaces become glossy; charred surfaces become matte
          roughnessFactor = mix(roughnessFactor, 0.12, clamp(uWetness, 0.0, 1.0));
          roughnessFactor = mix(roughnessFactor, 0.95, clamp(uBurnAmount, 0.0, 1.0));`
       );

@@ -6,7 +6,7 @@
   <title>3D Fire & Volumetric Liquid Simulator</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    body { background: #0f131a; color: #e2e8f0; font-family: system-ui, sans-serif; overflow: hidden; }
+    body { background: #0b0f17; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
     #canvas-container { width: 100vw; height: 100vh; touch-action: none; }
     #hud {
       position: fixed; top: 12px; left: 12px; right: 12px;
@@ -14,17 +14,20 @@
       pointer-events: none; z-index: 10;
     }
     .panel {
-      background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(8px);
-      border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 10px;
+      background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 10px;
       padding: 8px 12px; pointer-events: auto; display: flex; gap: 8px; align-items: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
     }
     button {
       background: #1e293b; color: #f8fafc; border: 1px solid #334155;
       border-radius: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
     }
     button.active { background: #ea580c; border-color: #fb923c; }
     button.water.active { background: #0284c7; border-color: #38bdf8; }
-    #stats { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: auto; }
+    button.orbit.active { background: #6366f1; border-color: #818cf8; }
+    #stats { font-size: 12px; font-variant-numeric: tabular-nums; margin-left: auto; letter-spacing: 0.2px; }
   </style>
   <script type="importmap">
     {
@@ -40,7 +43,7 @@
     <div class="panel">
       <button id="btn-ignite" class="active">🔥 Ignite</button>
       <button id="btn-water" class="water">💧 Water Hose</button>
-      <button id="btn-orbit">👁️ Orbit</button>
+      <button id="btn-orbit" class="orbit">👁️ Orbit</button>
       <button id="btn-drain">🌊 Drain</button>
       <button id="btn-reset">↺ Reset</button>
     </div>

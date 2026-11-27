@@ -6,30 +6,30 @@ export class FloorWaterSystem {
     this.baseY = baseY;
     this.width = width;
     this.depth = depth;
-    this.nx = 28;
-    this.nz = 20;
+    this.nx = 32;
+    this.nz = 22;
 
     const count = this.nx * this.nz;
-    this.h = new Float32Array(count);      // water depth
-    this.vel = new Float32Array(count);    // vertical wave velocity
-    this.prevH = new Float32Array(count);
+    this.h = new Float32Array(count);
+    this.vel = new Float32Array(count);
 
-    // Top wave mesh
+    // Top wave surface
     this.geom = new THREE.PlaneGeometry(width, depth, this.nx - 1, this.nz - 1);
     this.geom.rotateX(-Math.PI / 2);
 
     this.mat = new THREE.MeshPhysicalMaterial({
-      color: 0x1d8fe1,
+      color: 0x38bdf8,
+      emissive: 0x0369a1,
+      emissiveIntensity: 0.25,
       transparent: true,
-      opacity: 0.68,
+      opacity: 0.62,
       roughness: 0.08,
-      metalness: 0.05,
-      transmission: 0.35,
+      metalness: 0.1,
       depthWrite: false
     });
 
     this.mesh = new THREE.Mesh(this.geom, this.mat);
-    this.mesh.position.set(0, baseY + 0.005, 0);
+    this.mesh.position.set(0, baseY + 0.008, 0);
     this.mesh.visible = false;
     scene.add(this.mesh);
   }
@@ -41,9 +41,9 @@ export class FloorWaterSystem {
       for (let dx = -1; dx <= 1; dx++) {
         const ix = gx + dx, iz = gz + dz;
         if (ix >= 0 && ix < this.nx && iz >= 0 && iz < this.nz) {
-          const w = (dx === 0 && dz === 0) ? 0.5 : 0.0625;
+          const w = (dx === 0 && dz === 0) ? 0.55 : 0.056;
           this.h[iz * this.nx + ix] = Math.min(0.45, this.h[iz * this.nx + ix] + amount * w);
-          this.vel[iz * this.nx + ix] -= amount * 0.4;
+          this.vel[iz * this.nx + ix] -= amount * 0.45;
         }
       }
     }
@@ -55,8 +55,8 @@ export class FloorWaterSystem {
     return this.h[iz * this.nx + ix];
   }
 
-  step(dt, lowerFloorWater = null) {
-    const c2 = 4.2; // wave speed squared
+  step(dt, lowerFloorWater = null, floorTemp = 22) {
+    const c2 = 4.5;
     const damping = 0.965;
     let totalVolume = 0;
 
@@ -77,23 +77,26 @@ export class FloorWaterSystem {
     }
 
     const posAttr = this.geom.attributes.position;
+    const evapRate = floorTemp > 100 ? (floorTemp - 100) * 0.00012 * dt : 0;
+
     for (let z = 0; z < this.nz; z++) {
       for (let x = 0; x < this.nx; x++) {
         const i = z * this.nx + x;
-        this.h[i] = Math.max(0, this.h[i] + this.vel[i] * dt);
+        this.h[i] = Math.max(0, this.h[i] + this.vel[i] * dt - evapRate);
 
-        // Stairwell drainage on right side (x > 2.4, z < 0.8) for upper floors
-        if (lowerFloorWater && x >= this.nx - 5 && z >= 4 && z <= 12 && this.h[i] > 0.015) {
-          const spill = this.h[i] * 0.25 * dt * 10;
+        // Stairwell opening drainage on right side (x > 2.3)
+        if (lowerFloorWater && x >= this.nx - 5 && z >= 4 && z <= 14 && this.h[i] > 0.015) {
+          const spill = this.h[i] * 0.28 * dt * 10;
           this.h[i] -= spill;
           lowerFloorWater.addWaterAt(2.8, -0.4, spill);
         }
 
-        posAttr.setY(i, this.h[i]);
+        // Keep dry cells slightly below floor slab (-0.01) so dry floor shows wood planks cleanly!
+        posAttr.setY(i, this.h[i] > 0.002 ? this.h[i] : -0.012);
       }
     }
 
-    this.mesh.visible = totalVolume > 0.02;
+    this.mesh.visible = totalVolume > 0.025;
     if (this.mesh.visible) {
       posAttr.needsUpdate = true;
       this.geom.computeVertexNormals();

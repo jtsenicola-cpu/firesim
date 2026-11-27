@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { applySurfacePhysicsShader } from './shaders.js';
+import { createWoodTextures, createPlasterTextures, createFabricTexture } from './textures.js';
 
 export const FLOOR_HEIGHT = 2.8;
 export const NUM_FLOORS = 3;
@@ -7,25 +8,56 @@ export const NUM_FLOORS = 3;
 export function buildBuilding(scene) {
   const flammables = [];
   const floorSurfaces = [];
+  const windows = [];
+
+  const woodTex = createWoodTextures();
+  const plasterTex = createPlasterTextures();
 
   for (let f = 0; f < NUM_FLOORS; f++) {
     const baseY = f * FLOOR_HEIGHT;
 
-    // Slab with wetness & soot shader
-    const slabMat = new THREE.MeshStandardMaterial({ color: 0x8b6b4a, roughness: 0.75 });
+    // 1. Hardwood floor slab with stairwell cutout on right (x: 2.2 to 3.9, z: -2.2 to 0.6)
+    const slabMat = new THREE.MeshStandardMaterial({
+      map: woodTex.map,
+      bumpMap: woodTex.bumpMap,
+      bumpScale: 0.015,
+      roughness: 0.62
+    });
     const slabUniforms = applySurfacePhysicsShader(slabMat, {
       floorBaseY: baseY,
       ceilingHeight: FLOOR_HEIGHT
     });
 
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.18, 5.8), slabMat);
-    slab.position.set(0, baseY - 0.09, 0);
-    slab.receiveShadow = true;
-    scene.add(slab);
+    const mainSlab = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.18, 5.8), slabMat);
+    mainSlab.position.set(-1.0, baseY - 0.09, 0);
+    mainSlab.receiveShadow = true;
+    scene.add(mainSlab);
+
+    const frontLanding = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, 2.3), slabMat);
+    frontLanding.position.set(3.1, baseY - 0.09, 1.75);
+    frontLanding.receiveShadow = true;
+    scene.add(frontLanding);
+
+    if (f === 0) {
+      // Solid ground under stairwell
+      const stairBase = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, 3.5), slabMat);
+      stairBase.position.set(3.1, baseY - 0.09, -1.15);
+      stairBase.receiveShadow = true;
+      scene.add(stairBase);
+    } else {
+      // Staircase steps connecting floor f-1 to floor f
+      addStaircase(scene, 3.0, baseY - FLOOR_HEIGHT, -0.8, FLOOR_HEIGHT, slabMat);
+    }
+
     floorSurfaces.push({ floor: f, uniforms: slabUniforms });
 
-    // Back & Right walls
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0xd8dee9, roughness: 0.85 });
+    // 2. Textured Plaster Walls + Baseboards
+    const wallMat = new THREE.MeshStandardMaterial({
+      map: plasterTex.map,
+      bumpMap: plasterTex.bumpMap,
+      bumpScale: 0.01,
+      roughness: 0.85
+    });
     const wallUniforms = applySurfacePhysicsShader(wallMat, {
       floorBaseY: baseY,
       ceilingHeight: FLOOR_HEIGHT
@@ -33,39 +65,119 @@ export function buildBuilding(scene) {
 
     const backWall = new THREE.Mesh(new THREE.BoxGeometry(8.2, FLOOR_HEIGHT, 0.16), wallMat);
     backWall.position.set(0, baseY + FLOOR_HEIGHT / 2, -2.85);
+    backWall.receiveShadow = true;
     scene.add(backWall);
 
     const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.16, FLOOR_HEIGHT, 5.8), wallMat);
     rightWall.position.set(4.05, baseY + FLOOR_HEIGHT / 2, 0);
+    rightWall.receiveShadow = true;
     scene.add(rightWall);
+
+    // Baseboard trim
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
+    const backTrim = new THREE.Mesh(new THREE.BoxGeometry(8.1, 0.14, 0.04), trimMat);
+    backTrim.position.set(0, baseY + 0.07, -2.75);
+    const rightTrim = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.14, 5.7), trimMat);
+    rightTrim.position.set(3.95, baseY + 0.07, 0);
+    scene.add(backTrim, rightTrim);
+
+    // 3. Back Wall Window with Glass Pane (shatters at high heat)
+    const winObj = createWindow(scene, -1.2, baseY + 1.45, -2.76, f);
+    windows.push(winObj);
 
     floorSurfaces.push({ floor: f, uniforms: wallUniforms });
 
-    // Populate furniture per floor
+    // 4. Detailed Multi-Part Furniture & Supported Props (#4)
     if (f === 0) {
-      flammables.push(createSofa(scene, -1.6, baseY, 0.4, f));
-      flammables.push(createCoffeeTable(scene, -1.6, baseY, 1.6, f));
+      const sofa = createDetailedSofa(scene, -1.7, baseY, 0.3, f);
+      const table = createDetailedCoffeeTable(scene, -1.7, baseY, 1.55, f);
+      const rug = createRug(scene, -1.7, baseY, 1.0, f);
+      const bookStack = createSupportedProp(scene, -1.7, baseY + 0.46, 1.55, f, table, {
+        name: 'Magazines', color: 0xfef08a, size: [0.38, 0.06, 0.28]
+      });
+      const bookshelf = createBookshelf(scene, -3.3, baseY, -1.9, f);
+      flammables.push(sofa, table, rug, bookStack, bookshelf);
     } else if (f === 1) {
-      flammables.push(createBed(scene, -1.8, baseY, -0.6, f));
-      flammables.push(createDesk(scene, 0.8, baseY, -1.6, f));
+      const bed = createDetailedBed(scene, -1.9, baseY, -0.7, f);
+      const desk = createDetailedDesk(scene, 0.65, baseY, -1.8, f);
+      const monitor = createSupportedProp(scene, 0.65, baseY + 0.78, -1.85, f, desk, {
+        name: 'PC Monitor', color: 0x1e293b, size: [0.65, 0.44, 0.08]
+      });
+      const nightstand = createNightstand(scene, -3.25, baseY, -1.45, f);
+      const lamp = createSupportedProp(scene, -3.25, baseY + 0.56, -1.45, f, nightstand, {
+        name: 'Bedside Lamp', color: 0xfde68a, size: [0.24, 0.34, 0.24]
+      });
+      flammables.push(bed, desk, monitor, nightstand, lamp);
     } else {
-      flammables.push(createCrates(scene, -1.5, baseY, -0.5, f));
+      const workbench = createDetailedDesk(scene, 0.5, baseY, -1.8, f, 'Workbench');
+      const paintCans = createSupportedProp(scene, 0.3, baseY + 0.78, -1.8, f, workbench, {
+        name: 'Solvent Cans', color: 0xef4444, size: [0.35, 0.28, 0.22]
+      });
+      const crates = createDetailedCrates(scene, -1.8, baseY, -0.8, f);
+      flammables.push(workbench, paintCans, crates);
     }
   }
 
-  // Roof slab
+  // Roof slab with rafters
   const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(8.3, 0.2, 5.9),
-    new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 })
+    new THREE.BoxGeometry(8.35, 0.22, 5.95),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 })
   );
-  roof.position.set(0, NUM_FLOORS * FLOOR_HEIGHT + 0.1, 0);
+  roof.position.set(0, NUM_FLOORS * FLOOR_HEIGHT + 0.11, 0);
   scene.add(roof);
 
-  return { flammables, floorSurfaces };
+  return { flammables, floorSurfaces, windows };
+}
+
+function addStaircase(scene, x, baseY, zStart, height, mat) {
+  const steps = 10;
+  const dy = height / steps;
+  const dz = 2.4 / steps;
+  for (let i = 0; i < steps; i++) {
+    const step = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.08, dz * 1.15), mat);
+    step.position.set(x, baseY + (i + 0.5) * dy, zStart + i * dz);
+    step.castShadow = true;
+    step.receiveShadow = true;
+    scene.add(step);
+  }
+}
+
+function createWindow(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.08, 0.1), frameMat);
+  top.position.y = 0.65;
+  const bot = top.clone();
+  bot.position.y = -0.65;
+  const left = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.3, 0.1), frameMat);
+  left.position.x = -0.81;
+  const right = left.clone();
+  right.position.x = 0.81;
+  const mullion = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.24, 0.06), frameMat);
+
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0xbae6fd,
+    transparent: true,
+    opacity: 0.38,
+    roughness: 0.05,
+    metalness: 0.1
+  });
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.56, 1.22), glassMat);
+  g.add(top, bot, left, right, mullion, glass);
+  scene.add(g);
+
+  return { floor, group: g, glass, broken: false };
 }
 
 function makeFlammableNode(scene, group, opts) {
-  const mat = new THREE.MeshStandardMaterial({ color: opts.color, roughness: opts.roughness ?? 0.7 });
+  const matOpts = {
+    color: opts.color ?? 0xffffff,
+    roughness: opts.roughness ?? 0.72
+  };
+  if (opts.map) matOpts.map = opts.map;
+
+  const mat = new THREE.MeshStandardMaterial(matOpts);
   const uniforms = applySurfacePhysicsShader(mat, {
     floorBaseY: opts.floor * FLOOR_HEIGHT,
     ceilingHeight: FLOOR_HEIGHT
@@ -85,67 +197,158 @@ function makeFlammableNode(scene, group, opts) {
   return {
     name: opts.name,
     floor: opts.floor,
+    baseY: opts.floor * FLOOR_HEIGHT,
     group,
     uniforms,
     temp: 22,
-    ignitionTemp: opts.ignitionTemp ?? 260,
     fuel: 1.0,
     wetness: 0.0,
-    burning: false
+    burning: false,
+    supportedBy: opts.supportedBy ?? null,
+    fallen: false,
+    vy: 0
   };
 }
 
-function createSofa(scene, x, y, z, floor) {
+function createSupportedProp(scene, x, y, z, floor, supportNode, opts) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
-  const base = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.42, 0.95));
-  base.position.y = 0.21;
-  const back = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.55, 0.24));
-  back.position.set(0, 0.62, -0.35);
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.35, 0.95));
-  armL.position.set(-1.0, 0.52, 0);
-  const armR = armL.clone();
-  armR.position.x = 1.0;
-  g.add(base, back, armL, armR);
-  return makeFlammableNode(scene, g, { name: 'Sectional Sofa', floor, color: 0x9a3412, roughness: 0.88 });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...opts.size));
+  mesh.position.y = opts.size[1] / 2;
+  g.add(mesh);
+  return makeFlammableNode(scene, g, {
+    name: opts.name,
+    floor,
+    color: opts.color,
+    roughness: 0.5,
+    supportedBy: supportNode
+  });
 }
 
-function createCoffeeTable(scene, x, y, z, floor) {
+function createDetailedSofa(scene, x, y, z, floor) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
-  const top = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.08, 0.7));
+  const tex = createFabricTexture('#b45309');
+
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(2.25, 0.24, 0.96));
+  frame.position.y = 0.18;
+  const c1 = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.16, 0.88));
+  c1.position.set(-0.52, 0.36, 0.04);
+  const c2 = c1.clone();
+  c2.position.x = 0.52;
+  const back = new THREE.Mesh(new THREE.BoxGeometry(2.25, 0.54, 0.24));
+  back.position.set(0, 0.56, -0.36);
+  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.38, 0.96));
+  armL.position.set(-1.02, 0.46, 0);
+  const armR = armL.clone();
+  armR.position.x = 1.02;
+
+  // 4 wooden legs
+  for (const lx of [-0.95, 0.95]) {
+    for (const lz of [-0.38, 0.38]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.08));
+      leg.position.set(lx, 0.05, lz);
+      g.add(leg);
+    }
+  }
+  g.add(frame, c1, c2, back, armL, armR);
+  return makeFlammableNode(scene, g, { name: 'Fabric Sofa', floor, map: tex, roughness: 0.9 });
+}
+
+function createDetailedCoffeeTable(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.07, 0.72));
   top.position.y = 0.42;
   g.add(top);
-  return makeFlammableNode(scene, g, { name: 'Oak Coffee Table', floor, color: 0x78350f, roughness: 0.6 });
+  for (const lx of [-0.58, 0.58]) {
+    for (const lz of [-0.28, 0.28]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.4, 0.07));
+      leg.position.set(lx, 0.2, lz);
+      g.add(leg);
+    }
+  }
+  return makeFlammableNode(scene, g, { name: 'Oak Coffee Table', floor, color: 0x78350f, roughness: 0.55 });
 }
 
-function createBed(scene, x, y, z, floor) {
+function createRug(scene, x, y, z, floor) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
-  const mattress = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.36, 2.1));
-  mattress.position.y = 0.32;
-  const headboard = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.85, 0.14));
-  headboard.position.set(0, 0.55, -1.0);
-  g.add(mattress, headboard);
-  return makeFlammableNode(scene, g, { name: 'Queen Mattress', floor, color: 0xe2e8f0, roughness: 0.9 });
+  const tex = createFabricTexture('#991b1b');
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.02, 1.8));
+  mesh.position.y = 0.01;
+  g.add(mesh);
+  return makeFlammableNode(scene, g, { name: 'Woven Rug', floor, map: tex, roughness: 0.95 });
 }
 
-function createDesk(scene, x, y, z, floor) {
+function createBookshelf(scene, x, y, z, floor) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
-  const top = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.75));
+  const sideL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.75, 0.38));
+  sideL.position.set(-0.42, 0.875, 0);
+  const sideR = sideL.clone();
+  sideR.position.x = 0.42;
+  g.add(sideL, sideR);
+  for (let s = 0; s < 4; s++) {
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.05, 0.38));
+    shelf.position.set(0, 0.1 + s * 0.52, 0);
+    g.add(shelf);
+  }
+  return makeFlammableNode(scene, g, { name: 'Bookshelf', floor, color: 0x713f12, roughness: 0.65 });
+}
+
+function createDetailedBed(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const tex = createFabricTexture('#cbd5e1');
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.22, 2.16));
+  frame.position.y = 0.16;
+  const mattress = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.24, 2.04));
+  mattress.position.y = 0.38;
+  const pillow1 = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.12, 0.42));
+  pillow1.position.set(-0.42, 0.54, -0.72);
+  const pillow2 = pillow1.clone();
+  pillow2.position.x = 0.42;
+  const headboard = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.92, 0.12));
+  headboard.position.set(0, 0.48, -1.04);
+  g.add(frame, mattress, pillow1, pillow2, headboard);
+  return makeFlammableNode(scene, g, { name: 'Queen Bed', floor, map: tex, roughness: 0.88 });
+}
+
+function createDetailedDesk(scene, x, y, z, floor, label = 'Study Desk') {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.07, 0.78));
   top.position.y = 0.74;
   g.add(top);
-  return makeFlammableNode(scene, g, { name: 'Study Desk', floor, color: 0x92400e, roughness: 0.55 });
+  for (const lx of [-0.68, 0.68]) {
+    for (const lz of [-0.3, 0.3]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.72, 0.07));
+      leg.position.set(lx, 0.36, lz);
+      g.add(leg);
+    }
+  }
+  return makeFlammableNode(scene, g, { name: label, floor, color: 0x92400e, roughness: 0.52 });
 }
 
-function createCrates(scene, x, y, z, floor) {
+function createNightstand(scene, x, y, z, floor) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
-  const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9));
-  c1.position.set(0, 0.45, 0);
-  const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7));
-  c2.position.set(0.85, 0.35, 0.2);
-  g.add(c1, c2);
-  return makeFlammableNode(scene, g, { name: 'Storage Crates', floor, color: 0xb45309, roughness: 0.85 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.54, 0.46));
+  body.position.y = 0.28;
+  g.add(body);
+  return makeFlammableNode(scene, g, { name: 'Nightstand', floor, color: 0x78350f, roughness: 0.6 });
+}
+
+function createDetailedCrates(scene, x, y, z, floor) {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.92, 0.92));
+  c1.position.set(0, 0.46, 0);
+  const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.72, 0.72));
+  c2.position.set(0.88, 0.36, 0.22);
+  const c3 = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55));
+  c3.position.set(0.1, 1.19, -0.05);
+  g.add(c1, c2, c3);
+  return makeFlammableNode(scene, g, { name: 'Timber Crates', floor, color: 0xb45309, roughness: 0.82 });
 }
