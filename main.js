@@ -311,7 +311,7 @@ const clearPointer = (e) => {
 renderer.domElement.addEventListener('pointerup', clearPointer);
 renderer.domElement.addEventListener('pointercancel', clearPointer);
 
-// Smooth, Continuous 3-Phase Thermal De-Morphing with Live Heat Bubbling
+// Smooth, Continuous 3-Phase Thermal De-Morphing in object-floor space (no negative-oy clamping bug)
 function deformBurningMesh(item, targetChar, elapsed, dt, isHot) {
   item._smoothChar = (item._smoothChar ?? 0) + (targetChar - (item._smoothChar ?? 0)) * Math.min(1, dt * 5.0);
   const t = Math.min(1, Math.max(0, item._smoothChar));
@@ -326,22 +326,29 @@ function deformBurningMesh(item, targetChar, elapsed, dt, isHot) {
     if (!child.isMesh || !child.geometry.userData.origPos) return;
     const orig = child.geometry.userData.origPos;
     const pos = child.geometry.attributes.position.array;
+    const cy = child.position.y;
     const shrinkXZ = 1.0 - collapse * 0.28 + swell;
-    const slumpY = 1.0 - soften * 0.22 - collapse * 0.34;
+    const slumpY = 1.0 - soften * 0.22 - collapse * 0.38;
 
     for (let i = 0; i < pos.length; i += 3) {
       const ox = orig[i], oy = orig[i + 1], oz = orig[i + 2];
-      const blister = Math.sin(ox * 8.0 + oy * 7.0 + oz * 6.0) * 0.028 * Math.min(1, t * 2.5);
+      const floorH = cy + oy; // actual height above item's floor base
+      const blister = Math.sin(ox * 8.0 + floorH * 7.0 + oz * 6.0) * 0.024 * Math.min(1, t * 2.5);
       const pulse = liveBubble > 0
-        ? Math.sin(elapsed * 5.2 + ox * 6.5 + oy * 5.0 + oz * 6.5) * 0.011 * liveBubble
+        ? Math.sin(elapsed * 5.2 + ox * 6.5 + floorH * 5.0 + oz * 6.5) * 0.01 * liveBubble
         : 0;
       const radialDist = Math.min(1.0, Math.sqrt(ox * ox + oz * oz));
-      const midSag = (1.0 - radialDist * 0.65) * soften * 0.095;
-      const buckleX = Math.sin(oy * 5.2 + oz * 3.8 + item.floor) * 0.065 * soften;
-      const buckleZ = Math.cos(oy * 4.8 + ox * 3.5) * 0.065 * soften;
+      const midSag = (1.0 - radialDist * 0.65) * soften * 0.08 * Math.min(1.0, Math.max(0, floorH));
+      const buckleX = Math.sin(floorH * 4.5 + oz * 3.8 + item.floor) * 0.06 * soften * Math.min(1.0, Math.max(0, floorH));
+      const buckleZ = Math.cos(floorH * 4.2 + ox * 3.5) * 0.06 * soften * Math.min(1.0, Math.max(0, floorH));
 
       pos[i] = ox * shrinkXZ + buckleX + blister + pulse;
-      pos[i + 1] = Math.max(0, oy * slumpY - midSag + pulse * 0.6);
+      if (item.isHanging) {
+        pos[i + 1] = oy * (1.0 - collapse * 0.25) + pulse * 0.5;
+      } else {
+        const nextFloorH = Math.max(0.005, floorH * slumpY - midSag + pulse * 0.5);
+        pos[i + 1] = nextFloorH - cy;
+      }
       pos[i + 2] = oz * shrinkXZ + buckleZ + blister + pulse;
     }
     child.geometry.attributes.position.needsUpdate = true;
