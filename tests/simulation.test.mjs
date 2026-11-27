@@ -172,5 +172,21 @@ test('sealed fire depletes oxygen and broken window restores oxygen', () => {
   assert.ok(floorO2[0] > depletedO2, 'Breaking window should replenish oxygen');
 });
 
+test('small spills form localized puddles while heavy water floods the room', () => {
+  const puddleGrid = new WaterGrid();
+  puddleGrid.addWaterAt(-1.6, 0.4, 0.015);
+  for (let i = 0; i < 60; i++) puddleGrid.step(0.016, null, 22);
+
+  assert.ok(puddleGrid.getDepthAt(-1.6, 0.4) > 0, 'Puddle should remain at spray point');
+  assert.equal(puddleGrid.getDepthAt(3.0, -2.0), 0, 'Small puddle should not flood far corner');
+
+  const floodGrid = new WaterGrid();
+  for (let i = 0; i < 60; i++) floodGrid.addWaterAt(-1.6, 0.4, 0.25);
+  for (let i = 0; i < 180; i++) floodGrid.step(0.03, null, 22);
+
+  assert.ok(floodGrid.getDepthAt(2.5, -1.5) > 0.005, 'Excessive water should overflow puddles and flood the room');
+});
+
+
 
 

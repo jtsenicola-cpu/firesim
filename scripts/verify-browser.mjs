@@ -90,14 +90,17 @@ try {
   await page.waitForTimeout(150);
   await page.screenshot({ path: path.join(OUT_DIR, '02-sofa-fire-demorph.png') });
 
-  // Scenario 2: Punching bag burn + floor 0 water hose extinguish
+  // Scenario 2: Punching bag burn + localized puddle on Floor 2 + room flood on Floor 1
   const metrics2 = await page.evaluate(() => {
     window.__firesim.setCameraPreset('default');
     window.__firesim.ignite('Punching Bag');
-    for (let i = 0; i < 12; i++) {
-      window.__firesim.sprayWater(0, -1.6, 0.4, 0.15);
+    for (let i = 0; i < 3; i++) {
+      window.__firesim.sprayWater(1, -1.0, 0.5, 0.12);
     }
-    return window.__firesim.step(0.03, 400);
+    for (let i = 0; i < 45; i++) {
+      window.__firesim.sprayWater(0, -1.6, 0.4, 0.65);
+    }
+    return window.__firesim.step(0.03, 150);
   });
   await page.waitForTimeout(150);
   await page.screenshot({ path: path.join(OUT_DIR, '03-punching-bag-water.png') });

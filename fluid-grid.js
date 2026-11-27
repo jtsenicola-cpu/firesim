@@ -1,7 +1,7 @@
 /**
  * Pure 2D volume-conserving shallow-water heightfield grid (no Three.js or DOM dependencies).
- * Uses a pipe-flux solver with momentum so total water volume is strictly conserved
- * except for intentional stairwell drainage and thermal boil-off evaporation.
+ * Supports localized puddle formation via surface-tension/micro-relief, merging puddles,
+ * room-wide flooding, stairwell drainage, and thermal boil-off evaporation.
  */
 export class WaterGrid {
   constructor(width = 8.0, depth = 5.6, nx = 32, nz = 22) {
@@ -12,10 +12,19 @@ export class WaterGrid {
 
     const count = nx * nz;
     this.h = new Float32Array(count);
-    // Horizontal pipe fluxes (right and down) for wave momentum + strict mass conservation
     this.fluxR = new Float32Array(count);
     this.fluxD = new Float32Array(count);
-    this.vel = new Float32Array(count); // vertical surface velocity proxy (dh/dt)
+    this.vel = new Float32Array(count);
+
+    // Subtle deterministic floor micro-relief (0..0.006m) so small spills form realistic puddles
+    this.relief = new Float32Array(count);
+    for (let z = 0; z < nz; z++) {
+      for (let x = 0; x < nx; x++) {
+        const i = z * nx + x;
+        const n = Math.sin(x * 0.75 + z * 0.55) * Math.cos(x * 0.42 - z * 0.85);
+        this.relief[i] = (n * 0.5 + 0.5) * 0.006;
+      }
+    }
   }
 
   addWaterAt(worldX, worldZ, amount) {
@@ -23,7 +32,6 @@ export class WaterGrid {
     const gx = Math.floor(((worldX + this.width / 2) / this.width) * this.nx);
     const gz = Math.floor(((worldZ + this.depth / 2) / this.depth) * this.nz);
 
-    // Compute exact normalized weights over valid in-bounds cells so no water is lost at edges
     let weightSum = 0;
     for (let dz = -1; dz <= 1; dz++) {
       for (let dx = -1; dx <= 1; dx++) {
@@ -66,25 +74,33 @@ export class WaterGrid {
 
     const gravity = 9.8;
     const damping = Math.pow(0.86, dt * 60);
+    const surfaceTensionDepth = 0.005; // puddles hold shape until deeper water overflows
     const nx = this.nx;
     const nz = this.nz;
 
-    // 1. Update horizontal pipe fluxes from height gradients (creates gravity waves & ripples)
+    // 1. Update horizontal pipe fluxes from total surface height (relief + water depth)
     for (let z = 0; z < nz; z++) {
       for (let x = 0; x < nx; x++) {
         const i = z * nx + x;
         const hC = this.h[i];
+        const surfC = hC + this.relief[i];
 
         if (x < nx - 1) {
-          const dhR = hC - this.h[i + 1];
-          this.fluxR[i] = this.fluxR[i] * damping + dt * gravity * dhR * 0.65;
+          const hR = this.h[i + 1];
+          const surfR = hR + this.relief[i + 1];
+          const dhR = surfC - surfR;
+          const active = (dhR > 0 ? hC : hR) > surfaceTensionDepth;
+          this.fluxR[i] = active ? (this.fluxR[i] * damping + dt * gravity * dhR * 0.65) : 0;
         } else {
           this.fluxR[i] = 0;
         }
 
         if (z < nz - 1) {
-          const dhD = hC - this.h[i + nx];
-          this.fluxD[i] = this.fluxD[i] * damping + dt * gravity * dhD * 0.65;
+          const hD = this.h[i + nx];
+          const surfD = hD + this.relief[i + nx];
+          const dhD = surfC - surfD;
+          const active = (dhD > 0 ? hC : hD) > surfaceTensionDepth;
+          this.fluxD[i] = active ? (this.fluxD[i] * damping + dt * gravity * dhD * 0.65) : 0;
         } else {
           this.fluxD[i] = 0;
         }
@@ -113,7 +129,7 @@ export class WaterGrid {
     }
 
     // 3. Apply conservative flux exchange + optional evaporation + stairwell drainage
-    const evapRate = floorTemp > 100 ? (floorTemp - 100) * 0.00012 * dt : 0;
+    const evapRate = floorTemp > 100 ? (floorTemp - 100) * 0.000012 * dt : 0;
     let totalVolume = 0;
 
     for (let z = 0; z < nz; z++) {
