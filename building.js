@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applySurfacePhysicsShader } from './shaders.js';
-import { createWoodTextures, createPlasterTextures, createFabricTexture } from './textures.js';
+import { createWoodTextures, createPlasterTextures, createFabricTexture, createLeatherTexture } from './textures.js';
 
 export const FLOOR_HEIGHT = 2.8;
 export const NUM_FLOORS = 3;
@@ -31,11 +31,13 @@ export function buildBuilding(scene) {
 
     const mainSlab = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.18, 5.8), slabMat);
     mainSlab.position.set(-1.0, baseY - 0.09, 0);
+    mainSlab.castShadow = true;
     mainSlab.receiveShadow = true;
     scene.add(mainSlab);
 
     const frontLanding = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, 2.3), slabMat);
     frontLanding.position.set(3.1, baseY - 0.09, 1.75);
+    frontLanding.castShadow = true;
     frontLanding.receiveShadow = true;
     scene.add(frontLanding);
 
@@ -67,11 +69,13 @@ export function buildBuilding(scene) {
 
     const backWall = new THREE.Mesh(new THREE.BoxGeometry(8.2, FLOOR_HEIGHT, 0.16), wallMat);
     backWall.position.set(0, baseY + FLOOR_HEIGHT / 2, -2.85);
+    backWall.castShadow = true;
     backWall.receiveShadow = true;
     scene.add(backWall);
 
     const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.16, FLOOR_HEIGHT, 5.8), wallMat);
     rightWall.position.set(4.05, baseY + FLOOR_HEIGHT / 2, 0);
+    rightWall.castShadow = true;
     rightWall.receiveShadow = true;
     scene.add(rightWall);
 
@@ -172,13 +176,20 @@ function addStaircase(scene, x, baseY, zStart, height, lowerFloor) {
     }
   }
 
-  // Wooden handrail posts + rail per flight
+  // Wooden handrail posts + angled stair stringers
   const postL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.9, 0.07));
   postL.position.set(-0.62, 0.45, 0.1);
   const postU = postL.clone();
   postU.position.set(-0.62, 0.45, 1.0);
-  lowerGroup.add(postL);
-  upperGroup.add(postU);
+  const stringerLen = Math.sqrt(1.2 * 1.2 + (height * 0.5) * (height * 0.5));
+  const stringerAngle = -Math.atan2(height * 0.5, 1.2);
+  const stringerL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, stringerLen));
+  stringerL.position.set(-0.65, height * 0.25 - 0.06, 0.55);
+  stringerL.rotation.x = stringerAngle;
+  const stringerU = stringerL.clone();
+  stringerU.position.set(-0.65, height * 0.25 - 0.06, 0.55);
+  lowerGroup.add(postL, stringerL);
+  upperGroup.add(postU, stringerU);
 
   const lowerNode = makeFlammableNode(scene, lowerGroup, {
     name: `Stairs F${lowerFloor + 1} Lower`,
@@ -460,6 +471,7 @@ function createPunchingBag(scene, x, y, z, floor) {
   const strap = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.65, 8, 2));
   strap.position.y = 2.48;
 
+  const leatherTex = createLeatherTexture('#881337');
   g.add(bag, topCap, botCap, strap);
-  return makeFlammableNode(scene, g, { name: 'Punching Bag', floor, color: 0x991b1b, roughness: 0.55, isHanging: true });
+  return makeFlammableNode(scene, g, { name: 'Punching Bag', floor, map: leatherTex, roughness: 0.45, isHanging: true });
 }

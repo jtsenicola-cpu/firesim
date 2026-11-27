@@ -58,7 +58,7 @@ export function createPlasterTextures() {
   const [c, ctx] = makeCanvas(512, 512);
   const [bc, bctx] = makeCanvas(512, 512);
 
-  ctx.fillStyle = '#e5e7eb';
+  ctx.fillStyle = '#d1d6de';
   ctx.fillRect(0, 0, 512, 512);
   bctx.fillStyle = '#808080';
   bctx.fillRect(0, 0, 512, 512);
@@ -104,6 +104,28 @@ export function createFabricTexture(baseHex = '#9a3412') {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(4, 4);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createLeatherTexture(baseHex = '#7f1d1d') {
+  const [c, ctx] = makeCanvas(256, 256);
+  ctx.fillStyle = baseHex;
+  ctx.fillRect(0, 0, 256, 256);
+
+  for (let i = 0; i < 1800; i++) {
+    const x = Math.random() * 256;
+    const y = Math.random() * 256;
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.12)';
+    ctx.fillRect(x, y, 3, 2);
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(4, 4, 248, 248);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }

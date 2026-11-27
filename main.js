@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildBuilding, FLOOR_HEIGHT, NUM_FLOORS } from './building.js';
@@ -40,11 +41,54 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.48, // subtle AAA bloom strength
-  0.5,  // radius
-  1.05  // >1.0 HDR threshold so only flames, sparks & emissive embers bloom (never white walls)
+  0.5,  // subtle AAA bloom strength
+  0.6,  // radius
+  1.02  // >1.0 HDR threshold so only flames, sparks & emissive embers bloom
 );
 composer.addPass(bloomPass);
+
+// UE5 Filmic Color Grading + Vignette + Subtle Chromatic Aberration + Film Grain
+const cinematicPass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float uTime;
+    varying vec2 vUv;
+    void main() {
+      vec2 center = vUv - 0.5;
+      float dist = length(center);
+      // Subtle lens chromatic aberration at screen edges
+      vec2 caOffset = center * dist * 0.0045;
+      float r = texture2D(tDiffuse, vUv + caOffset).r;
+      float g = texture2D(tDiffuse, vUv).g;
+      float b = texture2D(tDiffuse, vUv - caOffset).b;
+      vec3 col = vec3(r, g, b);
+
+      // Subtle cool-shadow / warm-highlight split toning
+      float luma = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(col * vec3(0.95, 0.98, 1.05), col * vec3(1.03, 1.0, 0.96), smoothstep(0.15, 0.75, luma));
+
+      // Filmic vignette + subtle anti-banding grain
+      float vig = smoothstep(0.95, 0.25, dist);
+      col *= mix(0.68, 1.0, vig);
+      float grain = (fract(sin(dot(vUv * (uTime + 1.0), vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.014;
+      col += grain;
+
+      gl_FragColor = vec4(max(vec3(0.0), col), 1.0);
+    }
+  `
+});
+composer.addPass(cinematicPass);
 composer.addPass(new OutputPass());
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -102,10 +146,15 @@ const rimLight = new THREE.DirectionalLight(0x60a5fa, 0.48);
 rimLight.position.set(10, 9, -8);
 scene.add(rimLight);
 
-// Dynamic Flickering Fire PointLights per floor
+// Dynamic Flickering Fire PointLights per floor (Floor 1 casts dynamic fire shadows on desktop)
 const fireLights = [0, 1, 2].map((f) => {
-  const pl = new THREE.PointLight(0xff6b1a, 0, 9.5, 1.5);
+  const pl = new THREE.PointLight(0xff6b1a, 0, 10.0, 1.45);
   pl.position.set(0, f * FLOOR_HEIGHT + 1.2, 0);
+  if (f === 0 && !isMobileViewport()) {
+    pl.castShadow = true;
+    pl.shadow.mapSize.set(512, 512);
+    pl.shadow.bias = -0.002;
+  }
   scene.add(pl);
   return pl;
 });
@@ -648,6 +697,7 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
   stepSimulation(dt, clock.elapsedTime);
+  cinematicPass.uniforms.uTime.value = clock.elapsedTime;
   controls.update();
   composer.render();
 }
