@@ -100,6 +100,18 @@ export class FloorWaterSystem {
     this.grid.addWaterAt(worldX, worldZ, amount);
   }
 
+  clearBreaches() {
+    this.grid.clearBreaches();
+  }
+
+  setBreachedRect(minX, maxX, minZ, maxZ) {
+    this.grid.setBreachedRect(minX, maxX, minZ, maxZ);
+  }
+
+  getSpillPoints() {
+    return this.grid.spillPoints;
+  }
+
   getDepthAt(worldX, worldZ) {
     return this.grid.getDepthAt(worldX, worldZ);
   }

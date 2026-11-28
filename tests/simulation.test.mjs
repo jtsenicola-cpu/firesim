@@ -233,6 +233,67 @@ test('destroying load-bearing walls on lower floor collapses upper floors', () =
   assert.equal(blocks[6].destroyed, true, 'Roof should collapse');
 });
 
+test('breached floor slab drains water downward as a waterfall while conserving volume', () => {
+  const upper = new WaterGrid();
+  const lower = new WaterGrid();
+
+  for (let i = 0; i < 6; i++) {
+    upper.addWaterAt(-1.2, 0.2, 0.12);
+  }
+  const startVol = upper.getTotalVolume();
+  upper.setBreachedRect(-2.0, 0.0, -1.0, 1.0);
+
+  let sawSpill = false;
+  for (let i = 0; i < 30; i++) {
+    upper.step(0.03, lower, 22);
+    if (upper.spillPoints.length > 0) sawSpill = true;
+    lower.step(0.03, null, 22);
+  }
+
+  assert.equal(sawSpill, true, 'Breached slab should emit waterfall spill points');
+  const endVol = upper.getTotalVolume() + lower.getTotalVolume();
+  assert.ok(Math.abs(endVol - startVol) < 1e-3, `Volume must be conserved across waterfall: ${startVol} -> ${endVol}`);
+  assert.ok(lower.getTotalVolume() > 0.3, 'Lower floor should receive waterfall water through breached slab');
+});
+
+test('stagedCollapse applies progressive sag and staggers upper-floor block destruction', () => {
+  const blocks = [
+    { id: 0, floor: 0, isLoadBearing: true, isSlab: false, integrity: 1.0, destroyed: false },
+    { id: 1, floor: 0, isLoadBearing: true, isSlab: false, integrity: 1.0, destroyed: false },
+    { id: 2, floor: 0, isLoadBearing: true, isSlab: false, integrity: 1.0, destroyed: false },
+    { id: 3, floor: 1, isLoadBearing: false, isSlab: true, integrity: 1.0, destroyed: false },
+    { id: 4, floor: 2, isLoadBearing: true, isSlab: false, isRoof: true, integrity: 1.0, destroyed: false }
+  ];
+
+  damageBlock(blocks[0], 1.0);
+  damageBlock(blocks[1], 1.0);
+
+  stepStructuralIntegrity({
+    dt: 0.016,
+    blocks,
+    floorTemps: [22, 22, 22],
+    numFloors: 3,
+    stagedCollapse: true
+  });
+
+  assert.equal(blocks[3].collapsing, true, 'Floor 1 slab should enter collapsing state');
+  assert.equal(blocks[3].destroyed, false, 'Staged collapse should stagger destruction over time');
+  assert.equal(blocks[3].sagAmount, 1.0, 'Collapsing block should have full sagAmount');
+
+  for (let i = 0; i < 60; i++) {
+    stepStructuralIntegrity({
+      dt: 0.03,
+      blocks,
+      floorTemps: [22, 22, 22],
+      numFloors: 3,
+      stagedCollapse: true
+    });
+  }
+
+  assert.equal(blocks[3].destroyed, true, 'Floor 1 slab should finish collapsing');
+  assert.equal(blocks[4].destroyed, true, 'Upper roof block should finish collapsing');
+});
+
 
 
 

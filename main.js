@@ -13,6 +13,7 @@ import { createFlameMaterial, createSmokeMaterial } from './shaders.js';
 import { stepThermalCompartments } from './thermal.js';
 import { damageBlock, stepStructuralIntegrity } from './destruction.js';
 import { FireAudioEngine } from './audio.js';
+import { PhysicsWorld } from './physics.js';
 
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
@@ -161,6 +162,35 @@ const fireLights = [0, 1, 2].map((f) => {
 });
 
 const { flammables, floorSurfaces, windows, smokeLayers, structuralBlocks, floorTrims } = buildBuilding(scene);
+const physics = new PhysicsWorld();
+physics.init(structuralBlocks);
+
+// Dynamic continuous curved hose stream mesh
+const hoseStreamMat = new THREE.MeshPhysicalMaterial({
+  color: 0x7dd3fc,
+  emissive: 0x0ea5e9,
+  emissiveIntensity: 0.35,
+  transparent: true,
+  opacity: 0.78,
+  roughness: 0.08,
+  metalness: 0.1,
+  depthWrite: false
+});
+const hoseStreamMesh = new THREE.Mesh(new THREE.BufferGeometry(), hoseStreamMat);
+hoseStreamMesh.visible = false;
+hoseStreamMesh.userData.noRaycast = true;
+scene.add(hoseStreamMesh);
+
+function updateHoseStreamMesh(nozzle, target, elapsed) {
+  const mid = nozzle.clone().lerp(target, 0.5);
+  const dist = nozzle.distanceTo(target);
+  mid.y += Math.min(1.4, dist * 0.14);
+  mid.x += Math.sin(elapsed * 22) * 0.03;
+  const curve = new THREE.QuadraticBezierCurve3(nozzle, mid, target);
+  if (hoseStreamMesh.geometry) hoseStreamMesh.geometry.dispose();
+  hoseStreamMesh.geometry = new THREE.TubeGeometry(curve, 14, 0.042, 6, false);
+  hoseStreamMesh.visible = true;
+}
 const waterFloors = [0, 1, 2].map((f) => new FloorWaterSystem(scene, f, f * FLOOR_HEIGHT));
 const floorTemps = [22, 22, 22];
 const floorSoot = [0, 0, 0];
@@ -237,18 +267,30 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
     stump.receiveShadow = true;
     stump.userData.noRaycast = true;
     scene.add(stump);
+    const stumpBodyId = physics.addDynamicBox({
+      pos: stump.position,
+      quat: stump.quaternion,
+      halfExtents: { x: w * 0.5, y: stumpH * 0.5, z: d * 0.5 },
+      density: 2.0
+    });
     remnantMeshes.push({
       mesh: stump,
+      bodyId: stumpBodyId,
       floor: block.floor,
       halfH: stumpH / 2,
       vel: new THREE.Vector3(),
       spin: new THREE.Vector3(),
-      settled: true
+      settled: stumpBodyId == null
     });
   } else if (block.isSlab) {
-    // Drain any water/smoke floating on this collapsed slab
+    // Mark slab footprint as breached so water pours down as a waterfall onto the floor below
     if (!block.isRoof && waterFloors[block.floor]) {
-      waterFloors[block.floor].drain();
+      waterFloors[block.floor].setBreachedRect(
+        center.x - w * 0.5,
+        center.x + w * 0.5,
+        center.z - d * 0.5,
+        center.z + d * 0.5
+      );
     }
     if (!block.isRoof && smokeLayers[block.floor]) {
       smokeLayers[block.floor].mesh.visible = false;
@@ -268,13 +310,24 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
         section.receiveShadow = true;
         section.userData.noRaycast = true;
         scene.add(section);
+        const secVel = new THREE.Vector3(sx * (0.4 + Math.random() * 0.6), -0.5, sz * (0.4 + Math.random() * 0.6));
+        const secSpin = new THREE.Vector3((Math.random() - 0.5) * 1.1, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 1.1);
+        const secBodyId = physics.addDynamicBox({
+          pos: section.position,
+          quat: section.quaternion,
+          halfExtents: { x: qw * 0.5, y: h * 0.5, z: qd * 0.5 },
+          vel: secVel,
+          angVel: secSpin,
+          density: 1.8
+        });
         remnantMeshes.push({
           mesh: section,
+          bodyId: secBodyId,
           floor: block.floor,
           halfH: h / 2 + 0.08,
           radius: Math.min(qw, qd) * 0.35,
-          vel: new THREE.Vector3(sx * (0.4 + Math.random() * 0.6), -0.5, sz * (0.4 + Math.random() * 0.6)),
-          spin: new THREE.Vector3((Math.random() - 0.5) * 1.1, (Math.random() - 0.5) * 0.4, (Math.random() - 0.5) * 1.1),
+          vel: secVel,
+          spin: secSpin,
           settled: false
         });
       }
@@ -300,6 +353,7 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
   for (let i = 0; i < count; i++) {
     if (rubbleChunks.length >= 260) {
       const oldest = rubbleChunks.shift();
+      physics.removeDynamicBody(oldest.bodyId);
       scene.remove(oldest.mesh);
       oldest.mesh.material.dispose();
     }
@@ -329,12 +383,22 @@ function spawnBlockFracture(block, impactPoint = null, impactDir = null) {
       : new THREE.Vector3((Math.random() - 0.5) * 2.6, Math.random() * 1.2, (Math.random() - 0.5) * 2.6);
     if (impactDir) blast.addScaledVector(impactDir, 1.5);
 
+    const spin = new THREE.Vector3((Math.random() - 0.5) * 7, (Math.random() - 0.5) * 7, (Math.random() - 0.5) * 7);
+    const bodyId = physics.addDynamicBox({
+      pos: mesh.position,
+      quat: mesh.quaternion,
+      halfExtents: { x: 0.14 * sx, y: 0.11 * sy, z: 0.12 * sz },
+      vel: blast,
+      angVel: spin,
+      density: block.isSlab ? 1.5 : 1.2
+    });
     rubbleChunks.push({
       mesh,
+      bodyId,
       halfH: 0.11 * sy,
       radius: 0.14 * Math.max(sx, sz),
       vel: blast,
-      spin: new THREE.Vector3((Math.random() - 0.5) * 7, (Math.random() - 0.5) * 7, (Math.random() - 0.5) * 7),
+      spin,
       settled: false
     });
   }
@@ -346,6 +410,7 @@ function spawnRubbleChunks(origin, colorHex = 0x94a3b8, count = 6, spread = 0.8)
   for (let i = 0; i < count; i++) {
     if (rubbleChunks.length >= 240) {
       const oldest = rubbleChunks.shift();
+      physics.removeDynamicBody(oldest.bodyId);
       scene.remove(oldest.mesh);
       oldest.mesh.material.dispose();
     }
@@ -364,12 +429,23 @@ function spawnRubbleChunks(origin, colorHex = 0x94a3b8, count = 6, spread = 0.8)
     mesh.receiveShadow = true;
     mesh.userData.noRaycast = true;
     scene.add(mesh);
+    const vel = new THREE.Vector3((Math.random() - 0.5) * 3.5, 0.6 + Math.random() * 2.0, (Math.random() - 0.5) * 3.5);
+    const spin = new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+    const bodyId = physics.addDynamicBox({
+      pos: mesh.position,
+      quat: mesh.quaternion,
+      halfExtents: { x: 0.14 * sx, y: 0.11 * sy, z: 0.12 * sz },
+      vel,
+      angVel: spin,
+      density: 1.2
+    });
     rubbleChunks.push({
       mesh,
+      bodyId,
       halfH: 0.11 * sy,
       radius: 0.14 * Math.max(sx, sz),
-      vel: new THREE.Vector3((Math.random() - 0.5) * 3.5, 0.6 + Math.random() * 2.0, (Math.random() - 0.5) * 3.5),
-      spin: new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8),
+      vel,
+      spin,
       settled: false
     });
   }
@@ -515,8 +591,9 @@ function applyToolAtPointer(clientX, clientY, dtScale = 1.0) {
       const pressureBoost = 1.0 + Math.min(28.0, hoseHoldTime * hoseHoldTime * 1.6);
       waterFloors[f].addWaterAt(pt.x, pt.z, 0.055 * dtScale * pressureBoost);
 
-      // Arcing water hose stream from nozzle toward target point
+      // Arcing continuous water hose stream from nozzle toward target point
       const nozzle = camera.position.clone().add(new THREE.Vector3(0.45, -0.55, 0).applyQuaternion(camera.quaternion));
+      updateHoseStreamMesh(nozzle, pt, clock.elapsedTime);
       const toTarget = pt.clone().sub(nozzle);
       const flightTime = 0.28;
       const streamVel = new THREE.Vector3(
@@ -660,15 +737,52 @@ function stepSimulation(dt, elapsed) {
   // Continuous held-pointer spraying / ignition
   if (isPointerDown && activePointers.size === 1 && tool !== 'orbit') {
     if (tool === 'water') hoseHoldTime += dt;
+    else hoseStreamMesh.visible = false;
     applyToolAtPointer(lastPointerClientX, lastPointerClientY, Math.min(2.0, dt * 60));
   } else {
     hoseHoldTime = 0;
+    hoseStreamMesh.visible = false;
   }
 
-  // 1. Step 3D shallow-water wave grids, stairwell cascades & upward floor-to-floor flood overflow
+  // 1. Step 3D shallow-water wave grids, stairwell cascades & cross-floor waterfalls
   waterFloors[2].step(dt, waterFloors[1], floorTemps[2], null, FLOOR_HEIGHT);
   waterFloors[1].step(dt, waterFloors[0], floorTemps[1], waterFloors[2], FLOOR_HEIGHT);
   waterFloors[0].step(dt, null, floorTemps[0], waterFloors[1], FLOOR_HEIGHT);
+
+  for (let f = 1; f < NUM_FLOORS; f++) {
+    const spills = waterFloors[f].getSpillPoints();
+    for (let sIdx = 0; sIdx < spills.length; sIdx++) {
+      const sp = spills[sIdx];
+      if (Math.random() < 0.7) {
+        const dropPos = new THREE.Vector3(
+          sp.x + (Math.random() - 0.5) * 0.35,
+          f * FLOOR_HEIGHT - 0.15,
+          sp.z + (Math.random() - 0.5) * 0.35
+        );
+        spawnParticle(
+          'water',
+          dropPos,
+          new THREE.Vector3((Math.random() - 0.5) * 0.4, -2.4 - Math.random() * 1.4, (Math.random() - 0.5) * 0.4),
+          f - 1,
+          0.32
+        );
+      }
+      // Waterfall wets & cools fires on the floor directly below
+      for (const item of flammables) {
+        if (item.floor === f - 1) {
+          const dx = item.group.position.x - sp.x;
+          const dz = item.group.position.z - sp.z;
+          if (dx * dx + dz * dz < 1.44) {
+            item.wetness = Math.min(1.0, item.wetness + dt * 0.9);
+            if (item.burning || item.temp > 120) {
+              item.temp = Math.max(60, item.temp - dt * 160);
+              if (item.temp < 145) item.burning = false;
+            }
+          }
+        }
+      }
+    }
+  }
 
   const fireCentroids = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
 
@@ -705,18 +819,51 @@ function stepSimulation(dt, elapsed) {
       }
     }
     if (item.fallen) {
-      const supportY = getSupportingFloorY(item.group.position.x, item.group.position.y, item.group.position.z);
-      const targetY = item.isHanging ? supportY - 0.78 : supportY + 0.02;
-      if (item.group.position.y > targetY) {
-        item.vy -= 9.8 * dt;
-        item.group.position.y = Math.max(targetY, item.group.position.y + item.vy * dt);
-        item.group.rotation.z += dt * 1.4;
-        item.group.rotation.x += dt * 0.9;
-        if (item.boundsCenter) {
-          item.boundsCenter.y = item.group.position.y + (item.isHanging ? 1.2 : 0.4);
+      if (physics.ready && item.bodyId == null) {
+        const box = new THREE.Box3().setFromObject(item.group);
+        const size = new THREE.Vector3();
+        const center = new THREE.Vector3();
+        box.getSize(size);
+        box.getCenter(center);
+        item.bodyOffset = item.group.position.clone().sub(center);
+        item.bodyId = physics.addDynamicBox({
+          pos: center,
+          quat: item.group.quaternion,
+          halfExtents: {
+            x: Math.max(0.08, size.x * 0.45),
+            y: Math.max(0.08, size.y * 0.45),
+            z: Math.max(0.08, size.z * 0.45)
+          },
+          vel: new THREE.Vector3((Math.random() - 0.5) * 0.4, -0.2, (Math.random() - 0.5) * 0.4),
+          angVel: new THREE.Vector3((Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 1.4),
+          density: 1.1
+        });
+      }
+      if (physics.ready && item.bodyId != null) {
+        const st = physics.getBodyState(item.bodyId);
+        if (st) {
+          const q = new THREE.Quaternion(st.rotation.x, st.rotation.y, st.rotation.z, st.rotation.w);
+          const off = item.bodyOffset ? item.bodyOffset.clone().applyQuaternion(q) : new THREE.Vector3();
+          item.group.position.set(st.translation.x + off.x, st.translation.y + off.y, st.translation.z + off.z);
+          item.group.quaternion.copy(q);
+          if (item.boundsCenter) {
+            item.boundsCenter.set(st.translation.x, st.translation.y, st.translation.z);
+          }
         }
       } else {
-        item.vy = 0;
+        const supportY = getSupportingFloorY(item.group.position.x, item.group.position.y, item.group.position.z);
+        const targetY = item.isHanging ? supportY - 0.78 : supportY + 0.02;
+        if (item.group.position.y > targetY) {
+          item.vy -= 9.8 * dt;
+          item.group.position.y = Math.max(targetY, item.group.position.y + item.vy * dt);
+          item.group.rotation.z += dt * 1.4;
+          item.group.rotation.x += dt * 0.9;
+          if (item.boundsCenter) {
+            item.boundsCenter.y = item.group.position.y + (item.isHanging ? 1.2 : 0.4);
+          }
+        } else {
+          item.vy = 0;
+        }
       }
     }
 
@@ -880,12 +1027,13 @@ function stepSimulation(dt, elapsed) {
     }
   }
 
-  // 2b. Structural Integrity, Thermal Weakening & Load-Bearing Collapse (Red Faction style)
+  // 2b. Structural Integrity, Progressive Sag & Staged Load-Bearing Collapse
   stepStructuralIntegrity({
     dt,
     blocks: structuralBlocks,
     floorTemps,
     numFloors: NUM_FLOORS,
+    stagedCollapse: true,
     onBlockDestroyed: (block) => {
       spawnBlockFracture(block);
       spawnParticle('steam', block.mesh.position.clone(), new THREE.Vector3((Math.random() - 0.5) * 1.5, 1.0, (Math.random() - 0.5) * 1.5), block.floor, 1.1);
@@ -901,10 +1049,44 @@ function stepSimulation(dt, elapsed) {
     }
   });
 
-  // Step persistent tumbling rubble chunks & unsupported remnants with per-floor slab + debris-to-debris collision
+  // Animate progressive structural sag & pre-collapse tremor
+  for (const block of structuralBlocks) {
+    if (block.destroyed || !block.origPos) continue;
+    const sag = block.sagAmount ?? 0;
+    if (sag > 0.01) {
+      const tremor = block.collapsing ? Math.sin(elapsed * 44 + block.id * 1.7) * 0.022 : 0;
+      block.mesh.position.y = block.origPos.y - sag * (block.isSlab ? 0.16 : 0.07) + tremor * 0.5;
+      block.mesh.position.x = block.origPos.x + tremor;
+      block.mesh.rotation.z = (block.origPos.x >= 0 ? -1 : 1) * sag * (block.isSlab ? 0.045 : 0.065);
+      block.mesh.rotation.x = sag * 0.025;
+      if (block.collapsing && Math.random() < 0.18) {
+        spawnParticle(
+          'steam',
+          block.mesh.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.2, -0.2, (Math.random() - 0.5) * 0.8)),
+          new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.35, (Math.random() - 0.5) * 0.4),
+          block.floor,
+          0.45
+        );
+      }
+    }
+  }
+
+  physics.syncStaticBlocks(structuralBlocks);
+  physics.step(dt);
+
+  // Step persistent tumbling rubble chunks & unsupported remnants (Rapier3D when ready, fallback otherwise)
   const allDebris = [...rubbleChunks, ...remnantMeshes];
   for (let i = 0; i < allDebris.length; i++) {
     const r = allDebris[i];
+    if (r.bodyId != null && physics.ready) {
+      const st = physics.getBodyState(r.bodyId);
+      if (st) {
+        r.mesh.position.set(st.translation.x, st.translation.y, st.translation.z);
+        r.mesh.quaternion.set(st.rotation.x, st.rotation.y, st.rotation.z, st.rotation.w);
+        r.settled = st.sleeping;
+      }
+      continue;
+    }
     if (r.settled) continue;
 
     r.vel.y -= 9.8 * dt;

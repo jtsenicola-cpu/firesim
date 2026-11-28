@@ -15,6 +15,8 @@ export class WaterGrid {
     this.fluxR = new Float32Array(count);
     this.fluxD = new Float32Array(count);
     this.vel = new Float32Array(count);
+    this.breached = new Uint8Array(count);
+    this.spillPoints = [];
 
     // Subtle deterministic floor micro-relief (0..0.006m) so small spills form realistic puddles
     this.relief = new Float32Array(count);
@@ -69,8 +71,26 @@ export class WaterGrid {
     return sum;
   }
 
+  clearBreaches() {
+    this.breached.fill(0);
+  }
+
+  setBreachedRect(minX, maxX, minZ, maxZ) {
+    for (let z = 0; z < this.nz; z++) {
+      const wz = ((z + 0.5) / this.nz) * this.depth - this.depth / 2;
+      if (wz < minZ || wz > maxZ) continue;
+      for (let x = 0; x < this.nx; x++) {
+        const wx = ((x + 0.5) / this.nx) * this.width - this.width / 2;
+        if (wx >= minX && wx <= maxX) {
+          this.breached[z * this.nx + x] = 1;
+        }
+      }
+    }
+  }
+
   step(dt, lowerGrid = null, floorTemp = 22, upperGrid = null, floorHeight = 2.8) {
     if (dt <= 0) return this.getTotalVolume();
+    this.spillPoints.length = 0;
 
     const gravity = 9.8;
     const damping = Math.pow(0.86, dt * 60);
@@ -145,11 +165,26 @@ export class WaterGrid {
 
         let nextH = Math.max(0, prevH + net - evapRate);
 
+        // Breached floor slab drainage directly to lower floor
+        if (lowerGrid && this.breached[i] && nextH > 0.002 && lowerGrid.getDepthAt(0, 0) < floorHeight * 0.95) {
+          const wx = ((x + 0.5) / nx) * this.width - this.width / 2;
+          const wz = ((z + 0.5) / nz) * this.depth - this.depth / 2;
+          const spill = Math.min(nextH, nextH * Math.min(0.92, 4.5 * dt));
+          nextH -= spill;
+          lowerGrid.addWaterAt(wx, wz, spill);
+          if (spill > 0.002 && this.spillPoints.length < 18) {
+            this.spillPoints.push({ x: wx, z: wz, amount: spill });
+          }
+        }
+
         // Stairwell opening drainage on right side (x > 2.3) unless lower floor is already flooded to ceiling
         if (lowerGrid && x >= nx - 5 && z >= 4 && z <= 14 && nextH > 0.015 && lowerGrid.getDepthAt(2.8, -0.4) < floorHeight * 0.95) {
           const spill = Math.min(nextH, nextH * 0.28 * dt * 10);
           nextH -= spill;
           lowerGrid.addWaterAt(2.8, -0.4, spill);
+          if (spill > 0.002 && this.spillPoints.length < 18) {
+            this.spillPoints.push({ x: 2.8, z: -0.4, amount: spill });
+          }
         }
 
         // Upward stairwell flood overflow when water rises above ceiling height
