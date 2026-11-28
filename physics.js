@@ -40,6 +40,15 @@ export class PhysicsWorld {
       RAPIER.ColliderDesc.cuboid(30, 0.25, 30).setFriction(0.85).setRestitution(0.15),
       groundBody
     );
+
+    // Floor 0 building slab top surface sits at y = 0.0 (footprint x: [-4.1, 4.1], z: [-2.9, 2.9])
+    const floor0Body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.09, 0)
+    );
+    this.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(4.1, 0.09, 2.9).setFriction(0.8).setRestitution(0.12),
+      floor0Body
+    );
   }
 
   syncStaticBlocks(blocks) {
@@ -54,16 +63,17 @@ export class PhysicsWorld {
         continue;
       }
 
-      if (!existing && block.origPos && block.size) {
-        const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(
-          block.origPos.x,
-          block.origPos.y,
-          block.origPos.z
-        );
+      const pos = block.origPos ?? block.mesh?.position;
+      const w = block.size ? block.size[0] : block.width;
+      const h = block.size ? block.size[1] : block.height;
+      const d = block.size ? block.size[2] : block.depth;
+
+      if (!existing && pos && w && h && d) {
+        const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z);
         const body = this.world.createRigidBody(bodyDesc);
-        const hx = Math.max(0.05, block.size[0] * 0.5);
-        const hy = Math.max(0.04, block.size[1] * 0.5);
-        const hz = Math.max(0.05, block.size[2] * 0.5);
+        const hx = Math.max(0.05, w * 0.5);
+        const hy = Math.max(0.04, h * 0.5);
+        const hz = Math.max(0.05, d * 0.5);
         this.world.createCollider(
           RAPIER.ColliderDesc.cuboid(hx, hy, hz).setFriction(0.75).setRestitution(0.12),
           body

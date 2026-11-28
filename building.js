@@ -55,7 +55,7 @@ export function buildBuilding(scene) {
       const slabBlock = {
         id: blockId++, floor: f, isLoadBearing: false, isSlab: true,
         width: 6.2, height: 0.18, depth: 5.8,
-        integrity: 1.0, destroyed: false, mesh: mainSlab, color: 0x7c5332
+        integrity: 1.0, destroyed: false, mesh: mainSlab, origPos: mainSlab.position.clone(), color: 0x7c5332
       };
       mainSlab.userData.structuralBlock = slabBlock;
       structuralBlocks.push(slabBlock);
@@ -70,7 +70,7 @@ export function buildBuilding(scene) {
       const landBlock = {
         id: blockId++, floor: f, isLoadBearing: false, isSlab: true,
         width: 2.0, height: 0.18, depth: 2.3,
-        integrity: 1.0, destroyed: false, mesh: frontLanding, color: 0x7c5332
+        integrity: 1.0, destroyed: false, mesh: frontLanding, origPos: frontLanding.position.clone(), color: 0x7c5332
       };
       frontLanding.userData.structuralBlock = landBlock;
       structuralBlocks.push(landBlock);
@@ -264,7 +264,7 @@ export function buildBuilding(scene) {
   const roofBlock = {
     id: blockId++, floor: NUM_FLOORS - 1, isLoadBearing: false, isSlab: true, isRoof: true,
     width: 8.35, height: 0.22, depth: 5.95,
-    integrity: 1.0, destroyed: false, mesh: roof, color: 0x1e293b
+    integrity: 1.0, destroyed: false, mesh: roof, origPos: roof.position.clone(), color: 0x1e293b
   };
   roof.userData.structuralBlock = roofBlock;
   structuralBlocks.push(roofBlock);
