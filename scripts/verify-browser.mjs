@@ -20,7 +20,11 @@ function findBrowserExecutable() {
   const candidates = [
     'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
+    '/usr/bin/brave-browser'
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
